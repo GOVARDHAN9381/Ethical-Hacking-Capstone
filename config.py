@@ -18,8 +18,21 @@ DEMO_TARGET_PORT = int(os.environ.get("DEMO_TARGET_PORT", 5001))
 # ──────────────────────────────────────────────────────────────────────────────
 # Database
 # ──────────────────────────────────────────────────────────────────────────────
-DB_PATH = os.path.join(BASE_DIR, "apiast.db")
-SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
+IS_VERCEL = os.environ.get("VERCEL") == "1"
+
+if IS_VERCEL:
+    DB_PATH = "/tmp/apiast.db"
+else:
+    DB_PATH = os.path.join(BASE_DIR, "apiast.db")
+
+db_url = os.environ.get("DATABASE_URL")
+if db_url:
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    SQLALCHEMY_DATABASE_URI = db_url
+else:
+    SQLALCHEMY_DATABASE_URI = f"sqlite:///{DB_PATH}"
+
 SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -131,5 +144,8 @@ USE_AI_RECOMMENDATIONS = bool(OPENAI_API_KEY)
 # Monitoring
 # ──────────────────────────────────────────────────────────────────────────────
 DEFAULT_MONITOR_INTERVAL = 60   # minutes
-REPORTS_DIR = os.path.join(BASE_DIR, "output_reports")
+if os.environ.get("VERCEL") == "1":
+    REPORTS_DIR = "/tmp/output_reports"
+else:
+    REPORTS_DIR = os.path.join(BASE_DIR, "output_reports")
 os.makedirs(REPORTS_DIR, exist_ok=True)

@@ -229,11 +229,11 @@ def create_app() -> Flask:
     app.run_scan_worker = run_scan_worker
 
     # Register Blueprints
-    from api.discovery_routes import discovery_bp
-    from api.vuln_routes       import vuln_bp
-    from api.analysis_routes   import analysis_bp
-    from api.monitor_routes    import monitor_bp
-    from api.dashboard_routes  import dashboard_bp
+    from app_api.discovery_routes import discovery_bp
+    from app_api.vuln_routes       import vuln_bp
+    from app_api.analysis_routes   import analysis_bp
+    from app_api.monitor_routes    import monitor_bp
+    from app_api.dashboard_routes  import dashboard_bp
 
     app.register_blueprint(discovery_bp,  url_prefix="/api/discovery")
     app.register_blueprint(vuln_bp,        url_prefix="/api/vuln")
@@ -249,7 +249,52 @@ def create_app() -> Flask:
 
         def generate():
             try:
+                import os
                 from db.models import ScanLog
+                from db.manager import get_scan
+                
+                is_vercel = os.environ.get("VERCEL") == "1"
+                scan_record = None
+                with app.app_context():
+                    scan_record = get_scan(session_id)
+                
+                # On Vercel, the actual scan execution is initiated in the SSE stream
+                # to prevent Vercel from killing the background worker thread.
+                if is_vercel and scan_record and scan_record.status == "PENDING":
+                    if scan_record.scan_type == "discovery":
+                        from app_api.discovery_routes import _run_discovery_worker
+                        t = threading.Thread(
+                            target=_run_discovery_worker,
+                            args=(app, session_id, scan_record.target_url, None),
+                            daemon=True,
+                        )
+                    elif scan_record.scan_type == "vuln":
+                        from db.manager import get_endpoints
+                        with app.app_context():
+                            existing_eps = get_endpoints(session_id)
+                        if existing_eps:
+                            from app_api.vuln_routes import _run_vuln_worker
+                            endpoints_list = [ep.to_dict() for ep in existing_eps]
+                            t = threading.Thread(
+                                target=_run_vuln_worker,
+                                args=(app, session_id, scan_record.target_url, endpoints_list),
+                                daemon=True,
+                            )
+                        else:
+                            t = threading.Thread(
+                                target=run_scan_worker,
+                                args=(app, session_id, scan_record.target_url, "vuln"),
+                                daemon=True,
+                            )
+                    else:
+                        t = threading.Thread(
+                            target=run_scan_worker,
+                            args=(app, session_id, scan_record.target_url, scan_record.scan_type),
+                            daemon=True,
+                        )
+                    t.start()
+
+
                 with app.app_context():
                     logs = ScanLog.query.filter_by(session_id=session_id)\
                                         .order_by(ScanLog.timestamp).all()
@@ -283,6 +328,7 @@ def create_app() -> Flask:
     # ── Full Scan Trigger (all 4 modules) ───────────────────────────────────
     @app.route("/api/scan/start", methods=["POST"])
     def start_full_scan():
+        import os
         from flask import request, jsonify
         data = request.get_json() or {}
         target_url = (data.get("target_url") or "").strip()
@@ -290,6 +336,13 @@ def create_app() -> Flask:
         if not target_url:
             return jsonify({"error": "target_url is required"}), 400
         scan = create_scan(target_url, scan_type=scan_type)
+        
+        is_vercel = os.environ.get("VERCEL") == "1"
+        if is_vercel:
+            # On Vercel, the actual scan execution is initiated in the SSE stream
+            # to prevent Vercel from killing the background worker thread.
+            return jsonify({"session_id": scan.id, "status": "STARTED"}), 202
+
         t = threading.Thread(
             target=run_scan_worker,
             args=(app, scan.id, target_url, scan_type),
@@ -328,12 +381,14 @@ def create_app() -> Flask:
         return render_template("inventory.html")
 
     # Restore monitoring schedules
-    with app.app_context():
-        try:
-            from core.monitor import restore_schedules
-            restore_schedules(app, run_scan_worker, push_event)
-        except Exception:
-            pass
+    import os
+    if os.environ.get("VERCEL") != "1":
+        with app.app_context():
+            try:
+                from core.monitor import restore_schedules
+                restore_schedules(app, run_scan_worker, push_event)
+            except Exception:
+                pass
 
     return app
 

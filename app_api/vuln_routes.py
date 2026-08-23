@@ -62,6 +62,8 @@ def _run_vuln_worker(app, session_id: int, target_url: str, endpoints: list[dict
 
 @vuln_bp.route("/start", methods=["POST"])
 def start_vuln_scan():
+    import os
+    from db.models import db
     data = request.get_json() or {}
     target_url   = (data.get("target_url") or "").strip()
     session_id   = data.get("session_id")   # reuse discovery session
@@ -76,11 +78,17 @@ def start_vuln_scan():
         endpoints = [ep.to_dict() for ep in existing]
         scan_session = get_scan(session_id)
         if scan_session:
+            scan_session.scan_type = "vuln"
+            db.session.commit()
             update_scan_status(session_id, "PENDING")
     else:
         scan_session = create_scan(target_url, scan_type="vuln")
         session_id = scan_session.id
         endpoints = endpoint_list
+
+    is_vercel = os.environ.get("VERCEL") == "1"
+    if is_vercel:
+        return jsonify({"session_id": session_id, "status": "STARTED"}), 202
 
     app = current_app._get_current_object()
     t = threading.Thread(

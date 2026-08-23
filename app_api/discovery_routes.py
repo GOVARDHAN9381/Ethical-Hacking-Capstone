@@ -89,6 +89,7 @@ def _run_discovery_worker(app, session_id: int, target_url: str, token: str | No
 
 @discovery_bp.route("/start", methods=["POST"])
 def start_discovery():
+    import os
     data = request.get_json() or {}
     target_url = (data.get("target_url") or "").strip()
     token = (data.get("jwt_token") or "").strip() or None
@@ -97,6 +98,11 @@ def start_discovery():
         return jsonify({"error": "target_url is required"}), 400
 
     scan = create_scan(target_url, scan_type="discovery")
+
+    is_vercel = os.environ.get("VERCEL") == "1"
+    if is_vercel:
+        return jsonify({"session_id": scan.id, "status": "STARTED"}), 202
+
     app = current_app._get_current_object()
 
     t = threading.Thread(
@@ -107,6 +113,7 @@ def start_discovery():
     t.start()
 
     return jsonify({"session_id": scan.id, "status": "STARTED"}), 202
+
 
 
 @discovery_bp.route("/<int:session_id>/endpoints", methods=["GET"])

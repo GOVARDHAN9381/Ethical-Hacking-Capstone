@@ -12,9 +12,29 @@ from db.models import (
 
 
 def init_db(app):
+    # If the database is SQLite and mapped to /tmp (e.g. running on Vercel),
+    # copy the pre-existing SQLite database from root directory to /tmp on startup.
+    import os
+    import shutil
+    import config
+
+    db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
+    if db_uri.startswith("sqlite:///"):
+        db_path = db_uri[len("sqlite:///"):]
+        if db_path.startswith("/tmp/") and not os.path.exists(db_path):
+            orig_db_path = os.path.join(config.BASE_DIR, "apiast.db")
+            if os.path.exists(orig_db_path):
+                try:
+                    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+                    shutil.copy(orig_db_path, db_path)
+                    print(f"Copied preloaded database from {orig_db_path} to {db_path}")
+                except Exception as e:
+                    print(f"Error copying database: {e}")
+
     db.init_app(app)
     with app.app_context():
         db.create_all()
+
 
 
 # ── Scan Sessions ─────────────────────────────────────────────────────────────
