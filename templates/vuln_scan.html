@@ -1,0 +1,300 @@
+{% extends "base.html" %}
+{% block title %}Vulnerability Scan{% endblock %}
+{% block page_title %}API Vulnerability Assessment{% endblock %}
+{% block page_subtitle %}Module 2 — Comprehensive OWASP API Top 10 scanning &amp; heuristic assessment{% endblock %}
+
+{% block content %}
+<!-- Scan Config -->
+<div class="card scan-form-card mb-6">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+    Vulnerability Scan Configuration
+  </div>
+  <div class="grid-2" style="gap:14px;margin-bottom:14px">
+    <div class="form-group" style="margin:0">
+      <label class="form-label">Target URL</label>
+      <input type="url" class="form-input" id="vuln-target-url" placeholder="http://localhost:5001">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label class="form-label">Discovery Session ID (optional)</label>
+      <input type="number" class="form-input" id="vuln-session-id" placeholder="Reuse a discovery session">
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button class="btn btn-primary" id="start-vuln-btn" onclick="startVulnScan()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Run Vulnerability Scan
+    </button>
+    <button class="btn btn-secondary" onclick="document.getElementById('vuln-target-url').value='http://localhost:5001'">Use Demo Target</button>
+    <div id="vuln-status-container" style="flex:1;display:none"></div>
+  </div>
+</div>
+
+<!-- Live Log -->
+<div id="vuln-log-card" class="card mb-6" style="display:none">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    Scan Log
+  </div>
+  <div class="log-console" id="vuln-log"></div>
+</div>
+
+<!-- Findings Results -->
+<div id="vuln-results-section" style="display:none">
+  <!-- Stats -->
+  <div class="stat-grid mb-6" style="grid-template-columns:repeat(5,1fr)">
+    <div class="stat-card critical"><div class="stat-label">Critical</div><div class="stat-value" id="v-critical">0</div></div>
+    <div class="stat-card high"><div class="stat-label">High</div><div class="stat-value" id="v-high">0</div></div>
+    <div class="stat-card medium"><div class="stat-label">Medium</div><div class="stat-value" id="v-medium">0</div></div>
+    <div class="stat-card safe"><div class="stat-label">Low</div><div class="stat-value" id="v-low">0</div></div>
+    <div class="stat-card info"><div class="stat-label">OWASP Coverage</div><div class="stat-value" id="v-owasp">0%</div></div>
+  </div>
+
+  <div class="grid-2 mb-6">
+    <!-- Full OWASP API Top 10 Grid -->
+    <div class="card">
+      <div class="card-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+        OWASP API Top 10 (2023) Coverage Analysis
+      </div>
+      <div class="owasp-grid" id="owasp-grid">
+        <div class="text-muted text-sm">Run a scan to see OWASP coverage</div>
+      </div>
+    </div>
+    <!-- Severity Chart -->
+    <div class="card">
+      <div class="card-title">Severity Distribution</div>
+      <div style="display:flex;align-items:center;justify-content:center;height:200px">
+        <canvas id="vuln-severity-chart" style="max-height:200px"></canvas>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;justify-content:center" id="severity-legend"></div>
+    </div>
+  </div>
+
+  <!-- Verbose Error Analysis Panel -->
+  <div class="card mb-6" id="error-analysis-card" style="display:none">
+    <div class="card-title" style="color: #ff6b35;">
+      ⚠️ Error Disclosure &amp; Information Leakage Findings
+    </div>
+    <div id="error-analysis-list"></div>
+  </div>
+
+  <!-- Findings Table -->
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Vulnerability Findings</div>
+        <div class="section-subtitle" id="findings-subtitle">0 findings</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="form-select" id="sev-filter" onchange="filterFindings()" style="width:130px;padding:7px 12px">
+          <option value="">All Severities</option>
+          <option value="CRITICAL">Critical</option>
+          <option value="HIGH">High</option>
+          <option value="MEDIUM">Medium</option>
+          <option value="LOW">Low</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="go-analysis-btn" onclick="goToAnalysis()" style="display:none">
+          AI Risk Analysis →
+        </button>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Vulnerability</th><th>Severity</th><th>CVSS</th><th>OWASP Category</th><th>Endpoint</th><th>Action</th></tr></thead>
+        <tbody id="findings-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Finding Detail Modal -->
+<div class="modal-overlay" id="finding-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="finding-modal-title">Vulnerability Detail</div>
+      <button class="modal-close" onclick="closeModal('finding-modal')">✕</button>
+    </div>
+    <div id="finding-modal-body"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentVulnSessionId = null;
+let allFindings = [];
+
+// Pre-fill from URL params if coming from discovery
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("url")) document.getElementById("vuln-target-url").value = params.get("url");
+  if (params.get("session")) document.getElementById("vuln-session-id").value = params.get("session");
+})();
+
+async function startVulnScan() {
+  const url = document.getElementById("vuln-target-url").value.trim();
+  if (!url) { showToast("Enter a target URL", "error"); return; }
+  const sessionId = document.getElementById("vuln-session-id").value.trim() || null;
+
+  const btn = document.getElementById("start-vuln-btn");
+  btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Scanning...';
+
+  document.getElementById("vuln-log-card").style.display = "";
+  document.getElementById("vuln-results-section").style.display = "none";
+  document.getElementById("vuln-log").innerHTML = "";
+
+  const payload = { target_url: url };
+  if (sessionId) payload.session_id = parseInt(sessionId);
+
+  try {
+    const res = await apiPost("/api/vuln/start", payload);
+    currentVulnSessionId = res.session_id;
+    showVulnStatus("running", "Vulnerability scan running...");
+
+    const logEl = document.getElementById("vuln-log");
+    connectSSE(currentVulnSessionId, logEl, (data) => {
+      if (data.type === "vuln_complete") {
+        updateVulnStats(data);
+        loadVulnResults(currentVulnSessionId);
+      }
+      if (data.type === "status" && data.status === "COMPLETED") {
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Run Vulnerability Scan';
+        showVulnStatus("completed", "Scan complete!");
+      }
+      if (data.type === "status" && data.status === "FAILED") {
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg> Run Vulnerability Scan';
+        showVulnStatus("failed", "Scan failed");
+      }
+    });
+  } catch(e) {
+    showToast("Failed: " + e.message, "error");
+    btn.disabled = false;
+    btn.textContent = "Run Vulnerability Scan";
+  }
+}
+
+function showVulnStatus(type, msg) {
+  const c = document.getElementById("vuln-status-container");
+  c.style.display = "";
+  const icons = { running: '<div class="spinner"></div>', completed: "✅", failed: "❌" };
+  c.innerHTML = `<div class="scan-status-bar ${type}">${icons[type]}<span>${msg}</span></div>`;
+}
+
+function updateVulnStats(data) {
+  document.getElementById("v-critical").textContent = data.critical || 0;
+  document.getElementById("v-high").textContent = data.high || 0;
+  document.getElementById("v-owasp").textContent = (data.owasp_coverage || 0) + "%";
+}
+
+async function loadVulnResults(sessionId) {
+  document.getElementById("vuln-results-section").style.display = "";
+  const [findings, owaspSummary] = await Promise.all([
+    apiGet(`/api/vuln/${sessionId}/findings`),
+    apiGet(`/api/vuln/${sessionId}/owasp`),
+  ]);
+  allFindings = findings;
+
+  // Update stats
+  const counts = { critical:0, high:0, medium:0, low:0 };
+  findings.forEach(f => { const s = (f.severity||"LOW").toLowerCase(); if(counts[s]!==undefined) counts[s]++; });
+  document.getElementById("v-critical").textContent = counts.critical;
+  document.getElementById("v-high").textContent = counts.high;
+  document.getElementById("v-medium").textContent = counts.medium;
+  document.getElementById("v-low").textContent = counts.low;
+  document.getElementById("v-owasp").textContent = (owaspSummary.coverage_pct || 0) + "%";
+  document.getElementById("findings-subtitle").textContent = `${findings.length} findings`;
+
+  // OWASP grid
+  const grid = document.getElementById("owasp-grid");
+  const cats = owaspSummary.categories || [];
+  grid.innerHTML = cats.map(c => `
+    <div class="owasp-item ${c.found ? 'found' : ''}">
+      <div class="owasp-id">${c.category}</div>
+      <div class="owasp-name">${escHtml(c.name || '')}</div>
+      ${c.found ? `<div style="margin-top:6px">${severityBadge(c.severity)} <span class="text-muted text-sm">${c.count}</span></div>` : '<div style="margin-top:6px;font-size:11px;color:#2ed573">✅ Passed</div>'}
+    </div>
+  `).join("");
+
+  // Verbose Error Disclosures
+  const errFindings = findings.filter(f => (f.vuln_type||'').toLowerCase().includes('error') || (f.vuln_type||'').toLowerCase().includes('disclosure'));
+  const errCard = document.getElementById("error-analysis-card");
+  const errList = document.getElementById("error-analysis-list");
+
+  if (errFindings.length > 0) {
+    errCard.style.display = "";
+    errList.innerHTML = errFindings.map(ef => `
+      <div style="background: rgba(255,255,255,0.03); padding:10px 14px; border-radius:6px; margin-bottom:8px; border-left:3px solid #ff6b35;">
+        <div style="font-weight:700;font-size:13px;color:#e2e8f0">${escHtml(ef.vuln_type)} @ <code>${escHtml(ef.path||'/')}</code></div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:4px">${escHtml(ef.description||'')}</div>
+        ${ef.evidence ? `<pre style="font-size:11px;background:#0a0c1a;padding:6px;border-radius:4px;margin-top:6px;color:#7dd3fc">${escHtml(ef.evidence)}</pre>` : ''}
+      </div>
+    `).join("");
+  } else {
+    errCard.style.display = "none";
+  }
+
+  // Severity chart
+  renderSeverityChart("vuln-severity-chart", counts);
+
+  // Findings table
+  renderFindingsTable(findings);
+  if (findings.length > 0) document.getElementById("go-analysis-btn").style.display = "";
+}
+
+function renderFindingsTable(findings) {
+  const tbody = document.getElementById("findings-tbody");
+  if (findings.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:24px">No vulnerabilities found</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = findings.map((f, i) => `
+    <tr>
+      <td style="max-width:200px"><span class="truncate" style="display:block;font-weight:600">${escHtml(f.vuln_type||'Unknown')}</span></td>
+      <td>${severityBadge(f.severity)}</td>
+      <td><span style="font-family:monospace;font-weight:700;color:${cvssColor(f.cvss_score)}">${f.cvss_score||'N/A'}</span></td>
+      <td>${owaspBadge(f.owasp_category)}</td>
+      <td class="mono text-sm truncate" style="max-width:120px" title="${escHtml(f.description||'')}">${escHtml(f.path||'/')}</td>
+      <td><button class="btn btn-secondary btn-sm" onclick="showFinding(${i})">Details</button></td>
+    </tr>
+  `).join("");
+}
+
+function cvssColor(score) {
+  if (!score) return "#94a3b8";
+  if (score >= 9) return "#ff4757";
+  if (score >= 7) return "#ff6b35";
+  if (score >= 4) return "#ffa502";
+  return "#2ed573";
+}
+
+function filterFindings() {
+  const sev = document.getElementById("sev-filter").value;
+  const filtered = sev ? allFindings.filter(f => f.severity === sev) : allFindings;
+  renderFindingsTable(filtered);
+}
+
+function showFinding(idx) {
+  const f = allFindings[idx];
+  document.getElementById("finding-modal-title").innerHTML = `${escHtml(f.vuln_type)} ${severityBadge(f.severity)}`;
+  document.getElementById("finding-modal-body").innerHTML = `
+    <div class="detail-row"><div class="detail-label">OWASP Category</div><div class="detail-value">${owaspBadge(f.owasp_category)} ${escHtml(f.owasp_name||'')}</div></div>
+    <div class="detail-row"><div class="detail-label">CVSS Score</div><div class="detail-value" style="color:${cvssColor(f.cvss_score)};font-weight:700">${f.cvss_score || 'N/A'}</div></div>
+    <div class="detail-row"><div class="detail-label">Endpoint</div><div class="detail-value mono">${escHtml(f.path||'/')}</div></div>
+    <div class="detail-row"><div class="detail-label">Description</div><div class="detail-value">${escHtml(f.description||'')}</div></div>
+    ${f.payload ? `<div class="detail-row"><div class="detail-label">Payload</div><div class="detail-value"><div class="code-block">${escHtml(f.payload)}</div></div></div>` : ''}
+    ${f.evidence ? `<div class="detail-row"><div class="detail-label">Evidence</div><div class="detail-value"><div class="code-block">${escHtml(f.evidence)}</div></div></div>` : ''}
+    <div class="divider"></div>
+    <div class="detail-row"><div class="detail-label" style="color:#10b981">Remediation</div><div class="detail-value" style="color:#10b981">${escHtml(f.remediation||'See OWASP guidelines')}</div></div>
+  `;
+  openModal("finding-modal");
+}
+
+function goToAnalysis() {
+  if (!currentVulnSessionId) return;
+  window.location = `/analysis?session=${currentVulnSessionId}`;
+}
+</script>
+{% endblock %}

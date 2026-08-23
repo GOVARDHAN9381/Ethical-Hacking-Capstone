@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% block title %}Monitoring{% endblock %}
+{% block page_title %}Continuous Monitoring{% endblock %}
+{% block page_subtitle %}Module 4 — Scheduled scans, change detection, real-time alerts, and scan history{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary btn-sm" onclick="openModal('add-schedule-modal')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+    Add Schedule
+  </button>
+{% endblock %}
+
+{% block content %}
+<!-- Stats Row -->
+<div class="stat-grid mb-6" style="grid-template-columns:repeat(4,1fr)">
+  <div class="stat-card info"><div class="stat-label">Active Schedules</div><div class="stat-value" id="mon-schedules">—</div></div>
+  <div class="stat-card critical"><div class="stat-label">Unacked Alerts</div><div class="stat-value" id="mon-alerts">—</div></div>
+  <div class="stat-card safe"><div class="stat-label">Total Scans</div><div class="stat-value" id="mon-scans">—</div></div>
+  <div class="stat-card medium"><div class="stat-label">Avg Security Score</div><div class="stat-value" id="mon-sec-score">—</div></div>
+</div>
+
+<!-- Trend Graph -->
+<div class="card mb-6" id="trend-graph-card" style="display:none">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg>
+    Security Score Trend
+  </div>
+  <div style="height:180px;position:relative">
+    <canvas id="security-trend-chart"></canvas>
+  </div>
+</div>
+
+<div class="grid-2 mb-6">
+  <!-- Scheduled Monitors -->
+  <div class="card">
+    <div class="section-header">
+      <div><div class="section-title">Scheduled Monitors</div><div class="section-subtitle">Active continuous scan jobs</div></div>
+    </div>
+    <div id="schedules-list">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <p>No scheduled monitors yet</p>
+        <button class="btn btn-primary btn-sm" onclick="openModal('add-schedule-modal')">Add Monitor</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Alerts Feed -->
+  <div class="card">
+    <div class="section-header">
+      <div><div class="section-title">Security Alerts</div><div class="section-subtitle">Recent vulnerability alerts</div></div>
+      <button class="btn btn-secondary btn-sm" onclick="acknowledgeAll()">Acknowledge All</button>
+    </div>
+    <div id="alerts-feed">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+        <p>No alerts to display</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Scan History -->
+<div class="card">
+  <div class="section-header">
+    <div><div class="section-title">Scan History</div><div class="section-subtitle">All past scan sessions</div></div>
+    <button class="btn btn-secondary btn-sm" onclick="loadAll()">🔄 Refresh</button>
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr><th>#</th><th>Target URL</th><th>Type</th><th>Status</th><th>Findings</th><th>Security Score</th><th>Created</th><th>Actions</th></tr></thead>
+      <tbody id="scan-history-tbody">
+        <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Schedule Modal -->
+<div class="modal-overlay" id="add-schedule-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📅 Add Monitoring Schedule</div>
+      <button class="modal-close" onclick="closeModal('add-schedule-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Target URL</label>
+      <input type="url" class="form-input" id="sched-url" placeholder="http://api.example.com">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Scan Type</label>
+      <select class="form-select" id="sched-type">
+        <option value="full">Full Scan (All Modules)</option>
+        <option value="discovery">Discovery Only</option>
+        <option value="vuln">Vulnerability Only</option>
+      </select>
+    </div>
+    <!-- Schedule Presets -->
+    <div class="form-group">
+      <label class="form-label">Schedule Preset</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn btn-secondary btn-sm preset-btn" onclick="selectPreset(this,'hourly',60)" data-preset="hourly">⏱ Hourly</button>
+        <button class="btn btn-secondary btn-sm preset-btn" onclick="selectPreset(this,'daily',1440)" data-preset="daily">🌅 Daily</button>
+        <button class="btn btn-secondary btn-sm preset-btn" onclick="selectPreset(this,'weekly',10080)" data-preset="weekly">📅 Weekly</button>
+        <button class="btn btn-secondary btn-sm preset-btn" onclick="selectPreset(this,'monthly',43200)" data-preset="monthly">🗓 Monthly</button>
+        <button class="btn btn-secondary btn-sm preset-btn active" onclick="selectPreset(this,'custom',null)" data-preset="custom">✏️ Custom</button>
+      </div>
+    </div>
+    <div class="form-group" id="custom-interval-group">
+      <label class="form-label">Interval (minutes)</label>
+      <input type="number" class="form-input" id="sched-interval" value="60" min="5">
+    </div>
+    <button class="btn btn-primary w-full" onclick="addSchedule()">Create Schedule</button>
+  </div>
+</div>
+
+<!-- Change Detection Modal -->
+<div class="modal-overlay" id="changes-modal">
+  <div class="modal" style="max-width:600px">
+    <div class="modal-header">
+      <div class="modal-title">🔍 Change Detection Report</div>
+      <button class="modal-close" onclick="closeModal('changes-modal')">✕</button>
+    </div>
+    <div id="changes-modal-body"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let selectedPreset = "custom";
+let trendChart = null;
+
+function selectPreset(btn, preset, minutes) {
+  selectedPreset = preset;
+  document.querySelectorAll(".preset-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  const customGroup = document.getElementById("custom-interval-group");
+  if (preset === "custom") {
+    customGroup.style.display = "";
+  } else {
+    customGroup.style.display = "none";
+    if (minutes) document.getElementById("sched-interval").value = minutes;
+  }
+}
+
+async function loadAll() {
+  await Promise.all([loadStats(), loadSchedules(), loadAlerts(), loadHistory(), loadTrend()]);
+}
+
+async function loadStats() {
+  try {
+    const stats = await apiGet("/api/monitor/stats");
+    document.getElementById("mon-schedules").textContent = stats.active_schedules ?? "—";
+    document.getElementById("mon-alerts").textContent    = stats.unacked_alerts ?? "—";
+    document.getElementById("mon-scans").textContent     = stats.total_scans ?? "—";
+    const ss = stats.avg_security_score;
+    const ssEl = document.getElementById("mon-sec-score");
+    if (ss !== null && ss !== undefined) {
+      ssEl.textContent = ss + "/100";
+      ssEl.style.color = ss >= 70 ? "#2ed573" : ss >= 40 ? "#ffa502" : "#ff4757";
+    } else {
+      ssEl.textContent = "—";
+    }
+  } catch(_) {}
+}
+
+async function loadTrend() {
+  try {
+    const trend = await apiGet("/api/dashboard/trend");
+    if (trend.length < 2) return;
+    document.getElementById("trend-graph-card").style.display = "";
+    renderSecurityTrendChart("security-trend-chart", trend);
+  } catch(_) {}
+}
+
+function renderSecurityTrendChart(canvasId, scans) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
+  if (trendChart) trendChart.destroy();
+  const labels  = scans.map(s => `#${s.session_id}`);
+  const scores  = scans.map(s => s.security_score ?? null);
+  trendChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels,
+      datasets: [{
+        label: "Security Score",
+        data: scores,
+        borderColor: "#2ed573",
+        backgroundColor: "rgba(46,213,115,.1)",
+        borderWidth: 2,
+        pointBackgroundColor: "#2ed573",
+        pointRadius: 4,
+        tension: 0.4,
+        fill: true,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      scales: {
+        y: { min:0, max:100, grid:{color:"rgba(255,255,255,.05)"}, ticks:{color:"#64748b"} },
+        x: { grid:{color:"rgba(255,255,255,.05)"}, ticks:{color:"#64748b"} },
+      },
+      plugins: { legend:{display:false} },
+    },
+  });
+}
+
+async function loadSchedules() {
+  const schedules = await apiGet("/api/monitor/schedules");
+  const el = document.getElementById("schedules-list");
+  if (schedules.length === 0) {
+    el.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><p>No scheduled monitors yet</p><button class="btn btn-primary btn-sm" onclick="openModal('add-schedule-modal')">Add Monitor</button></div>`;
+    return;
+  }
+  el.innerHTML = schedules.map(s => `
+    <div class="alert-item" style="margin-bottom:8px">
+      <div class="alert-icon" style="background:rgba(0,212,255,0.1);font-size:16px">⏱</div>
+      <div class="alert-body" style="flex:1">
+        <div class="alert-message mono text-sm">${escHtml(s.target_url)}</div>
+        <div class="alert-time">
+          ${s.schedule_preset ? `<strong>${s.schedule_preset}</strong> · ` : ""}
+          Every ${s.interval_minutes}min ·
+          <span class="badge badge-owasp">${s.scan_type}</span> ·
+          Next: ${s.next_run ? timeAgo(s.next_run.replace("Z","")) : "N/A"}
+        </div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-sm ${s.active ? "btn-danger" : "btn-success"}" onclick="toggleSchedule(${s.id}, ${!s.active})">
+          ${s.active ? "Pause" : "Resume"}
+        </button>
+        <button class="btn btn-danger btn-sm" onclick="deleteSchedule(${s.id})">Delete</button>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function loadAlerts() {
+  const alerts = await apiGet("/api/monitor/alerts");
+  const el = document.getElementById("alerts-feed");
+  if (alerts.length === 0) {
+    el.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg><p>No alerts</p></div>`;
+    return;
+  }
+  el.innerHTML = alerts.slice(0, 15).map(a => `
+    <div class="alert-item ${(a.severity||"INFO").toLowerCase()}" style="margin-bottom:6px;${a.acknowledged?"opacity:0.5":""}">
+      <div class="alert-icon">${a.acknowledged ? "✅" : "⚠️"}</div>
+      <div class="alert-body" style="flex:1">
+        <div class="alert-message">${escHtml(a.message)}</div>
+        <div class="alert-time">${timeAgo(a.created_at)} · ${severityBadge(a.severity)}</div>
+      </div>
+      ${!a.acknowledged ? `<button class="btn btn-secondary btn-sm" onclick="ackAlert(${a.id}, this)">Ack</button>` : ""}
+    </div>
+  `).join("");
+}
+
+async function loadHistory() {
+  const scans = await apiGet("/api/monitor/scans");
+  const tbody = document.getElementById("scan-history-tbody");
+  if (scans.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No scans yet. <a href="/discovery">Run your first scan →</a></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = scans.map(s => {
+    const ss    = s.security_score;
+    const ssColor = ss !== null && ss !== undefined ? (ss>=70?"#2ed573":ss>=40?"#ffa502":"#ff4757") : "#94a3b8";
+    return `<tr>
+      <td class="mono text-muted">#${s.id}</td>
+      <td class="mono text-sm truncate" style="max-width:180px" title="${escHtml(s.target_url)}">${escHtml(s.target_url)}</td>
+      <td><span class="badge badge-owasp">${s.scan_type}</span></td>
+      <td>${statusBadge(s.status)}</td>
+      <td><span style="font-weight:700;color:${(s.finding_count||0)>0?"#ff6b35":"#2ed573"}">${s.finding_count||0}</span></td>
+      <td><span style="font-weight:700;color:${ssColor}">${ss !== null && ss !== undefined ? ss + "/100" : "—"}</span></td>
+      <td class="text-muted text-sm">${timeAgo(s.created_at)}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <a href="/analysis?session=${s.id}" class="btn btn-secondary btn-sm">Analysis</a>
+          <button class="btn btn-secondary btn-sm" onclick="showChanges(${s.id})">Changes</button>
+          <div style="display:flex;gap:3px">
+            <a href="/api/monitor/report/${s.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" title="PDF">PDF</a>
+            <a href="/api/monitor/report/${s.id}/html" target="_blank" class="btn btn-secondary btn-sm" title="HTML">HTML</a>
+            <a href="/api/monitor/report/${s.id}/csv" target="_blank" class="btn btn-secondary btn-sm" title="CSV">CSV</a>
+            <a href="/api/monitor/report/${s.id}/json" target="_blank" class="btn btn-secondary btn-sm" title="JSON">JSON</a>
+          </div>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function showChanges(sessionId) {
+  const data = await apiGet(`/api/monitor/changes/${sessionId}`);
+  const body = document.getElementById("changes-modal-body");
+  if (data.message && !data.previous_session_id) {
+    body.innerHTML = `<div class="empty-state"><p>${escHtml(data.message)}</p></div>`;
+  } else {
+    const deltaColor = (data.risk_delta||0) > 0 ? "#ff4757" : "#2ed573";
+    const deltaIcon  = (data.risk_delta||0) > 0 ? "⬆" : "⬇";
+    body.innerHTML = `
+      <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+        <div class="stat-card" style="padding:12px"><div class="stat-value" style="color:#ff4757;font-size:20px">${data.new_vulns||0}</div><div class="stat-label">New Issues</div></div>
+        <div class="stat-card" style="padding:12px"><div class="stat-value" style="color:#2ed573;font-size:20px">${data.resolved_vulns||0}</div><div class="stat-label">Resolved</div></div>
+        <div class="stat-card" style="padding:12px"><div class="stat-value" style="color:#22d3ee;font-size:20px">${(data.new_endpoints||[]).length}</div><div class="stat-label">New Endpoints</div></div>
+        <div class="stat-card" style="padding:12px"><div class="stat-value" style="color:${deltaColor};font-size:20px">${deltaIcon} ${Math.abs(data.risk_delta||0)}</div><div class="stat-label">Risk Delta</div></div>
+      </div>
+      ${(data.new_endpoints||[]).length>0?`<div style="margin-bottom:12px"><div style="font-size:12px;color:#7dd3fc;font-weight:700;margin-bottom:6px">New Endpoints</div>${data.new_endpoints.map(p=>`<div class="mono text-sm" style="color:#2ed573">+ ${escHtml(p)}</div>`).join("")}</div>`:""}
+      ${(data.removed_endpoints||[]).length>0?`<div style="margin-bottom:12px"><div style="font-size:12px;color:#7dd3fc;font-weight:700;margin-bottom:6px">Removed Endpoints</div>${data.removed_endpoints.map(p=>`<div class="mono text-sm" style="color:#f87171">- ${escHtml(p)}</div>`).join("")}</div>`:""}
+      ${(data.auth_changes||[]).length>0?`<div><div style="font-size:12px;color:#7dd3fc;font-weight:700;margin-bottom:6px">Auth Type Changes</div>${data.auth_changes.map(c=>`<div class="mono text-sm">${escHtml(c.path)}: <span style="color:#f87171">${c.was}</span> → <span style="color:#2ed573">${c.now}</span></div>`).join("")}</div>`:""}
+      ${data.previous_session_id?`<div class="text-muted text-sm" style="margin-top:12px">Compared to Session #${data.previous_session_id}</div>`:""}
+    `;
+  }
+  openModal("changes-modal");
+}
+
+async function addSchedule() {
+  const url      = document.getElementById("sched-url").value.trim();
+  const type     = document.getElementById("sched-type").value;
+  const interval = parseInt(document.getElementById("sched-interval").value) || 60;
+  if (!url) { showToast("Enter a target URL", "error"); return; }
+  const payload = { target_url: url, scan_type: type, interval_minutes: interval };
+  if (selectedPreset !== "custom") payload.schedule_preset = selectedPreset;
+  try {
+    await apiPost("/api/monitor/schedules", payload);
+    closeModal("add-schedule-modal");
+    showToast("Monitor schedule created!", "success");
+    loadSchedules();
+  } catch(e) { showToast("Failed: " + e.message, "error"); }
+}
+
+async function toggleSchedule(id, active) {
+  await apiPost(`/api/monitor/schedules/${id}/toggle`, { active });
+  showToast(active ? "Schedule resumed" : "Schedule paused", "info");
+  loadSchedules();
+}
+
+async function deleteSchedule(id) {
+  if (!confirm("Delete this schedule?")) return;
+  await apiDelete(`/api/monitor/schedules/${id}`);
+  showToast("Schedule deleted", "info");
+  loadSchedules();
+}
+
+async function ackAlert(id, btn) {
+  await apiPost(`/api/monitor/alerts/${id}/acknowledge`, {});
+  btn.closest(".alert-item").style.opacity = "0.4";
+  btn.remove();
+}
+
+async function acknowledgeAll() {
+  const alerts = await apiGet("/api/monitor/alerts");
+  const unacked = alerts.filter(a => !a.acknowledged);
+  await Promise.all(unacked.map(a => apiPost(`/api/monitor/alerts/${a.id}/acknowledge`, {})));
+  showToast(`${unacked.length} alerts acknowledged`, "success");
+  loadAlerts();
+}
+
+loadAll();
+setInterval(loadAlerts, 30000);
+</script>
+{% endblock %}

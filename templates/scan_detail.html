@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Scan Workbench #{{ scan_id }} — NSAF Audit Framework{% endblock %}
+
+{% block content %}
+<div>
+  <!-- Header Bar -->
+  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;">
+    <div>
+      <a href="/" style="font-size: 0.85rem; color: var(--text-dim); margin-bottom: 0.5rem; display: inline-block;">&larr; Back to Dashboard</a>
+      <h1 style="font-size: 1.6rem; font-weight: 700; display: flex; align-items: center; gap: 0.75rem;">
+        Scan Workbench <span style="color: var(--accent-cyan);">#{{ scan_id }}</span>
+        <span id="scanStatusBadge" class="badge badge-pending">LOADING</span>
+      </h1>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+      <a href="/report/{{ scan_id }}" class="btn-primary">
+        <span>📄</span> View Executive Report
+      </a>
+    </div>
+  </div>
+
+  <!-- Live SSE Log Terminal Console -->
+  <div class="panel" style="padding: 1rem; margin-bottom: 2rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+      <span style="font-weight: 600; font-size: 0.9rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem;">
+        <span>📡</span> Live Engine Output Terminal (SSE Stream)
+      </span>
+      <span style="font-size: 0.75rem; color: var(--text-dim); font-family: 'JetBrains Mono';">Auto-Scrolling</span>
+    </div>
+    <div class="terminal-window">
+      <div class="terminal-header">
+        <div class="terminal-dots">
+          <div class="dot red"></div>
+          <div class="dot yellow"></div>
+          <div class="dot green"></div>
+        </div>
+        <div>nsaf-worker-stream --scan-id={{ scan_id }}</div>
+      </div>
+      <div id="terminalBody" class="terminal-body">
+        <div class="terminal-line INFO">[SYSTEM] Connecting to live SSE event stream...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Host Findings Panel -->
+  <div style="margin-bottom: 1rem; display: flex; justify-content: space-between; align-items: center;">
+    <h3 style="font-size: 1.2rem; font-weight: 700;">Discovered Target Hosts & Security Correlation</h3>
+  </div>
+
+  <div id="hostDetailsContainer">
+    <div style="text-align: center; color: var(--text-dim); padding: 3rem;">
+      <p>Initializing host scan workbench...</p>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.addEventListener("DOMContentLoaded", function() {
+    const scanId = {{ scan_id }};
+    initScanStream(scanId);
+    loadScanDetails(scanId);
+  });
+</script>
+{% endblock %}

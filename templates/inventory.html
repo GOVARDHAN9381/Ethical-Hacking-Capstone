@@ -1,0 +1,269 @@
+{% extends "base.html" %}
+{% block title %}API Inventory{% endblock %}
+{% block page_title %}API Asset Inventory{% endblock %}
+{% block page_subtitle %}Module 1 — Discovered API surfaces, versions, and endpoint classification{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-secondary btn-sm" onclick="loadInventory()">🔄 Refresh</button>
+{% endblock %}
+
+{% block content %}
+<!-- Summary Stats -->
+<div class="stat-grid mb-6" style="grid-template-columns:repeat(5,1fr)" id="inv-stats">
+  <div class="stat-card info"><div class="stat-label">Total APIs</div><div class="stat-value" id="inv-total">—</div></div>
+  <div class="stat-card">   <div class="stat-label">Total Endpoints</div><div class="stat-value" id="inv-endpoints">—</div></div>
+  <div class="stat-card critical"><div class="stat-label">Admin Endpoints</div><div class="stat-value" id="inv-admin">—</div></div>
+  <div class="stat-card safe"><div class="stat-label">Public Endpoints</div><div class="stat-value" id="inv-public">—</div></div>
+  <div class="stat-card medium"><div class="stat-label">Auth Protected</div><div class="stat-value" id="inv-auth-eps">—</div></div>
+</div>
+
+<!-- Inventory Table -->
+<div class="card mb-6">
+  <div class="section-header">
+    <div>
+      <div class="section-title">Discovered APIs</div>
+      <div class="section-subtitle">Click an API to explore its endpoints</div>
+    </div>
+    <input type="text" class="form-input" id="inv-search" placeholder="Search by URL or name..." style="width:220px" oninput="filterInventory()">
+  </div>
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead><tr>
+        <th>API Name</th><th>Base URL</th><th>Version</th>
+        <th>Auth Type</th><th>Endpoints</th><th>Admin</th>
+        <th>Last Scan</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="inventory-tbody">
+        <tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Endpoint Explorer (shown when an API is selected) -->
+<div id="endpoint-explorer" style="display:none">
+  <div class="grid-2 mb-6">
+    <!-- Classification Donut -->
+    <div class="card">
+      <div class="card-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+        Endpoint Classification
+      </div>
+      <div style="display:flex;align-items:center;gap:24px">
+        <div style="width:180px;height:180px;flex-shrink:0">
+          <canvas id="classification-chart"></canvas>
+        </div>
+        <div id="classification-legend" style="display:flex;flex-direction:column;gap:6px;flex:1"></div>
+      </div>
+    </div>
+
+    <!-- Auth Coverage -->
+    <div class="card">
+      <div class="card-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        Auth Coverage
+      </div>
+      <div id="auth-coverage-breakdown" style="display:flex;flex-direction:column;gap:8px;margin-top:4px"></div>
+    </div>
+  </div>
+
+  <!-- Endpoint Table -->
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title" id="explorer-title">Endpoints</div>
+        <div class="section-subtitle" id="explorer-subtitle"></div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <select class="form-select" id="cat-filter" onchange="filterEndpoints()" style="width:140px;padding:7px 12px">
+          <option value="">All Categories</option>
+          <option value="Auth">Auth</option>
+          <option value="Admin">Admin</option>
+          <option value="User">User</option>
+          <option value="Payment">Payment</option>
+          <option value="Data">Data</option>
+          <option value="Health">Health</option>
+          <option value="Public">Public</option>
+        </select>
+      </div>
+    </div>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Method</th><th>Path</th><th>Category</th><th>Auth</th><th>Auth Type</th><th>Status</th></tr></thead>
+        <tbody id="endpoint-detail-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allInventory = [];
+let allEndpoints = [];
+let classChart = null;
+
+const CAT_COLORS = {
+  Auth:    "#818cf8",
+  Admin:   "#f87171",
+  User:    "#34d399",
+  Payment: "#fbbf24",
+  Data:    "#22d3ee",
+  Health:  "#a3e635",
+  Public:  "#94a3b8",
+};
+
+async function loadInventory() {
+  try {
+    allInventory = await apiGet("/api/discovery/inventory");
+    renderInventoryTable(allInventory);
+    updateSummaryStats(allInventory);
+  } catch(e) {
+    document.getElementById("inventory-tbody").innerHTML =
+      `<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No APIs discovered yet. <a href="/discovery">Run a discovery scan →</a></td></tr>`;
+  }
+}
+
+function updateSummaryStats(invs) {
+  document.getElementById("inv-total").textContent = invs.length;
+  const totalEps = invs.reduce((s,i) => s + (i.total_endpoints||0), 0);
+  const totalAdmin = invs.reduce((s,i) => s + (i.admin_count||0), 0);
+  const totalPublic = invs.reduce((s,i) => s + (i.public_count||0), 0);
+  const totalAuth = invs.reduce((s,i) => s + (i.auth_count||0), 0);
+  document.getElementById("inv-endpoints").textContent = totalEps;
+  document.getElementById("inv-admin").textContent = totalAdmin;
+  document.getElementById("inv-public").textContent = totalPublic;
+  document.getElementById("inv-auth-eps").textContent = totalAuth;
+}
+
+function filterInventory() {
+  const q = document.getElementById("inv-search").value.toLowerCase();
+  const filtered = allInventory.filter(i =>
+    (i.base_url||"").toLowerCase().includes(q) ||
+    (i.api_name||"").toLowerCase().includes(q)
+  );
+  renderInventoryTable(filtered);
+}
+
+function renderInventoryTable(invs) {
+  const tbody = document.getElementById("inventory-tbody");
+  if (!invs.length) {
+    tbody.innerHTML = `<tr><td colspan="8" class="text-muted text-sm" style="text-align:center;padding:24px">No APIs in inventory. Run a discovery scan first.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = invs.map(i => `
+    <tr>
+      <td><strong>${escHtml(i.api_name || "Unknown API")}</strong></td>
+      <td class="mono text-sm">${escHtml(i.base_url || "")}</td>
+      <td>${i.version ? `<span class="badge badge-owasp">${escHtml(i.version)}</span>` : "<span class='text-muted'>—</span>"}</td>
+      <td>${i.auth_type ? `<span class="badge" style="background:rgba(99,102,241,.2);color:#818cf8">${escHtml(i.auth_type)}</span>` : "<span class='text-muted'>None</span>"}</td>
+      <td><strong>${i.total_endpoints||0}</strong></td>
+      <td><span style="color:${(i.admin_count||0)>0?'#f87171':'#2ed573'};font-weight:700">${i.admin_count||0}</span></td>
+      <td class="text-muted text-sm">${timeAgo(i.last_scan)}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="exploreEndpoints(${i.session_id}, '${escHtml(i.api_name||i.base_url||"")}')">Explore</button></td>
+    </tr>
+  `).join("");
+}
+
+async function exploreEndpoints(sessionId, name) {
+  try {
+    const data = await apiGet(`/api/discovery/${sessionId}/classify`);
+    allEndpoints = data.endpoints || [];
+    renderClassificationChart(data.breakdown || {});
+    renderAuthCoverage(allEndpoints);
+    renderEndpointTable(allEndpoints);
+    document.getElementById("explorer-title").textContent = `${name} — Endpoints`;
+    document.getElementById("explorer-subtitle").textContent = `${data.total} total endpoints`;
+    document.getElementById("endpoint-explorer").style.display = "";
+    document.getElementById("endpoint-explorer").scrollIntoView({ behavior: "smooth" });
+  } catch(e) {
+    showToast("Failed to load endpoint data", "error");
+  }
+}
+
+function renderClassificationChart(breakdown) {
+  const ctx = document.getElementById("classification-chart").getContext("2d");
+  if (classChart) classChart.destroy();
+  const labels = Object.keys(breakdown);
+  const values = Object.values(breakdown);
+  const colors = labels.map(l => CAT_COLORS[l] || "#94a3b8");
+  classChart = new Chart(ctx, {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "70%",
+      plugins: { legend: { display: false } },
+    },
+  });
+  const legend = document.getElementById("classification-legend");
+  legend.innerHTML = labels.map((l,i) => `
+    <div style="display:flex;align-items:center;gap:8px">
+      <div style="width:12px;height:12px;border-radius:3px;background:${colors[i]};flex-shrink:0"></div>
+      <span style="font-size:12px;color:#cbd5e1">${l}</span>
+      <span style="font-size:12px;color:#64748b;margin-left:auto">${values[i]}</span>
+    </div>
+  `).join("");
+}
+
+function renderAuthCoverage(endpoints) {
+  const total = endpoints.length;
+  const authEps = endpoints.filter(e => e.auth_required).length;
+  const noAuth = total - authEps;
+  const pct = total ? Math.round((authEps/total)*100) : 0;
+  const authTypes = {};
+  endpoints.forEach(e => { if(e.auth_type) authTypes[e.auth_type] = (authTypes[e.auth_type]||0)+1; });
+  const el = document.getElementById("auth-coverage-breakdown");
+  el.innerHTML = `
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+        <span style="font-size:12px;color:#94a3b8">Auth Protected</span>
+        <span style="font-size:12px;font-weight:700;color:#2ed573">${authEps}/${total} (${pct}%)</span>
+      </div>
+      <div style="height:6px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;height:100%;background:linear-gradient(90deg,#2ed573,#34d399);border-radius:3px;transition:width 0.5s"></div>
+      </div>
+    </div>
+    ${Object.entries(authTypes).map(([k,v])=>`
+      <div style="display:flex;align-items:center;gap:8px">
+        <span class="badge" style="background:rgba(99,102,241,.2);color:#818cf8;font-size:10px">${escHtml(k)}</span>
+        <span style="font-size:12px;color:#94a3b8">${v} endpoints</span>
+      </div>
+    `).join("")}
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px">
+      <span class="badge" style="background:rgba(239,68,68,.15);color:#f87171;font-size:10px">Unprotected</span>
+      <span style="font-size:12px;color:#94a3b8">${noAuth} endpoints</span>
+    </div>
+  `;
+}
+
+function filterEndpoints() {
+  const cat = document.getElementById("cat-filter").value;
+  const filtered = cat ? allEndpoints.filter(e => e.category === cat) : allEndpoints;
+  renderEndpointTable(filtered);
+}
+
+function renderEndpointTable(eps) {
+  const tbody = document.getElementById("endpoint-detail-tbody");
+  if (!eps.length) {
+    tbody.innerHTML = `<tr><td colspan="6" class="text-muted text-sm" style="text-align:center;padding:20px">No endpoints</td></tr>`;
+    return;
+  }
+  const methodColors = { GET:"#2ed573", POST:"#ffa502", PUT:"#70a1ff", DELETE:"#ff4757", PATCH:"#eccc68" };
+  tbody.innerHTML = eps.map(ep => {
+    const cat = ep.category || "Public";
+    const catColor = CAT_COLORS[cat] || "#94a3b8";
+    const mc = methodColors[ep.method] || "#94a3b8";
+    return `<tr>
+      <td><code style="color:${mc};font-weight:700">${ep.method||"GET"}</code></td>
+      <td class="mono text-sm">${escHtml(ep.path||"/")}</td>
+      <td><span style="font-size:11px;background:rgba(0,0,0,.3);color:${catColor};padding:2px 7px;border-radius:4px;border:1px solid ${catColor}40">${cat}</span></td>
+      <td>${ep.auth_required ? '<span style="color:#2ed573;font-size:12px">✅ Required</span>' : '<span style="color:#f87171;font-size:12px">🔓 None</span>'}</td>
+      <td>${ep.auth_type ? `<span class="badge" style="background:rgba(99,102,241,.15);color:#818cf8;font-size:10px">${escHtml(ep.auth_type)}</span>` : '<span class="text-muted">—</span>'}</td>
+      <td><span class="status-badge ${ep.status_code < 300 ? "completed" : ep.status_code < 400 ? "pending" : "failed"}">${ep.status_code||"—"}</span></td>
+    </tr>`;
+  }).join("");
+}
+
+loadInventory();
+</script>
+{% endblock %}

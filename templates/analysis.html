@@ -1,0 +1,377 @@
+{% extends "base.html" %}
+{% block title %}AI Risk Analysis{% endblock %}
+{% block page_title %}AI Risk Analysis &amp; Recommendations{% endblock %}
+{% block page_subtitle %}Module 3 — Security Score, CVSS scoring, compliance analysis, and AI remediation{% endblock %}
+
+{% block content %}
+<!-- Session Input -->
+<div class="card scan-form-card mb-6">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+    Analyze Scan Session
+  </div>
+  <div class="input-group">
+    <input type="number" class="form-input" id="analysis-session-id" placeholder="Enter Session ID from a completed scan">
+    <button class="btn btn-primary" onclick="runAnalysis()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+      Run AI Analysis
+    </button>
+  </div>
+</div>
+
+<!-- Analysis Results -->
+<div id="analysis-results" style="display:none" class="fade-in">
+
+  <!-- Row 1: Security Score + Risk + Vuln Breakdown -->
+  <div class="grid-3 mb-6">
+    <!-- Security Score (0-100) -->
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px">
+      <div class="card-title" style="align-self:flex-start">🏆 Security Score</div>
+      <div class="security-score-ring" id="sec-score-ring">
+        <svg viewBox="0 0 120 120" class="score-svg">
+          <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.05)" stroke-width="10"/>
+          <circle cx="60" cy="60" r="52" fill="none" stroke="#2ed573" stroke-width="10"
+                  stroke-dasharray="327" stroke-dashoffset="327" id="score-arc"
+                  stroke-linecap="round" transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="score-inner">
+          <div class="security-score-val" id="sec-score-val">—</div>
+          <div class="security-score-sub">/100</div>
+        </div>
+      </div>
+      <div class="risk-level-label" id="sec-risk-label">—</div>
+    </div>
+
+    <!-- Risk Gauge -->
+    <div class="card" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+      <div class="card-title" style="align-self:flex-start">⚠️ Risk Score</div>
+      <div style="position:relative;width:160px;height:160px">
+        <canvas id="risk-gauge-chart"></canvas>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+          <div class="risk-score-number" id="risk-score-display">—</div>
+          <div class="risk-level-label" id="risk-level-display" style="font-size:11px">—</div>
+        </div>
+      </div>
+      <p id="risk-summary-text" class="text-muted text-sm" style="text-align:center;max-width:240px"></p>
+    </div>
+
+    <!-- Compliance Score -->
+    <div class="card" style="display:flex;flex-direction:column;gap:12px">
+      <div class="card-title">📋 OWASP Compliance</div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <div style="position:relative;width:80px;height:80px;flex-shrink:0">
+          <canvas id="compliance-mini-chart"></canvas>
+          <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+            <div id="compliance-pct" style="font-size:18px;font-weight:800;color:#22d3ee">—</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:13px;font-weight:600;color:#e2e8f0" id="compliance-desc">—</div>
+          <div class="text-muted text-sm" id="compliance-detail" style="margin-top:4px">—</div>
+        </div>
+      </div>
+      <div id="compliance-mini-bars" style="display:flex;flex-direction:column;gap:5px;margin-top:auto"></div>
+    </div>
+  </div>
+
+  <!-- Row 2: Trend + Priority Ranking -->
+  <div class="grid-2 mb-6">
+    <!-- Trend Analysis -->
+    <div class="card" id="trend-card" style="display:none">
+      <div class="card-title">📈 Trend vs Previous Scan</div>
+      <div id="trend-body"></div>
+    </div>
+
+    <!-- Priority Ranking -->
+    <div class="card">
+      <div class="card-title">🎯 Priority Ranking</div>
+      <div id="priority-ranking-body" style="display:flex;flex-direction:column;gap:8px"></div>
+    </div>
+  </div>
+
+  <!-- CVSS Breakdown + Vuln Chart -->
+  <div class="grid-2 mb-6">
+    <div class="card">
+      <div class="section-header">
+        <div>
+          <div class="section-title">CVSS Score Breakdown</div>
+          <div class="section-subtitle">Prioritized findings by risk score</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('pdf')">📄 PDF</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('html')">🌐 HTML</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('csv')">📊 CSV</button>
+          <button class="btn btn-secondary btn-sm" onclick="downloadReport('json')">{ } JSON</button>
+        </div>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>Vulnerability</th><th>CVSS Score</th><th>Severity</th><th>OWASP</th></tr></thead>
+          <tbody id="cvss-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Severity Distribution</div>
+      <div style="height:220px;position:relative">
+        <canvas id="analysis-sev-chart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <!-- OWASP Compliance Table -->
+  <div class="card mb-6">
+    <div class="card-title">🛡️ OWASP API Top 10 Compliance Report</div>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Category</th><th>Name</th><th>Status</th><th>Findings</th><th>Severity</th></tr></thead>
+        <tbody id="compliance-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- AI Recommendations -->
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title">🤖 AI Remediation Recommendations</div>
+        <div class="section-subtitle">Prioritized action plan based on findings</div>
+      </div>
+    </div>
+    <div id="recommendations-list"></div>
+    <div class="divider"></div>
+    <div class="section-title mb-4" style="margin-top:4px">General Security Best Practices</div>
+    <div id="general-recs-list"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let analysisSessionId = null;
+let complianceMiniChart = null;
+
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("session")) {
+    document.getElementById("analysis-session-id").value = params.get("session");
+    setTimeout(runAnalysis, 300);
+  }
+})();
+
+async function runAnalysis() {
+  const sessionId = parseInt(document.getElementById("analysis-session-id").value);
+  if (!sessionId) { showToast("Enter a valid session ID", "error"); return; }
+  analysisSessionId = sessionId;
+  showToast("Running AI risk analysis...", "info");
+
+  try {
+    const result = await apiPost(`/api/analysis/${sessionId}/analyze`, {});
+    document.getElementById("analysis-results").style.display = "";
+
+    const risk  = result.risk || {};
+    const recs  = result.recommendations || {};
+    const owasp = result.owasp_summary || {};
+    const comp  = result.compliance_report || {};
+    const trend = result.trend || {};
+
+    const score    = risk.overall_score || 0;
+    const secScore = risk.security_score || 0;
+    const compPct  = result.compliance_score || 0;
+    const level    = risk.risk_level || "INFO";
+    const levelColors = { CRITICAL:"#ff4757", HIGH:"#ff6b35", MEDIUM:"#ffa502", LOW:"#2ed573", INFO:"#70a1ff" };
+    const color    = levelColors[level] || "#70a1ff";
+
+    // Security score ring
+    const secVal  = document.getElementById("sec-score-val");
+    const secLabel= document.getElementById("sec-risk-label");
+    const arc     = document.getElementById("score-arc");
+    secVal.textContent  = secScore;
+    secVal.style.color  = color;
+    secLabel.textContent= level;
+    secLabel.style.color= color;
+    const circumference = 327;
+    const offset = circumference - (secScore / 100) * circumference;
+    arc.style.stroke = color;
+    arc.style.strokeDashoffset = offset;
+
+    // Risk gauge
+    document.getElementById("risk-score-display").textContent = score;
+    document.getElementById("risk-score-display").style.color = color;
+    document.getElementById("risk-level-display").textContent = level;
+    document.getElementById("risk-level-display").style.color = color;
+    document.getElementById("risk-summary-text").textContent = recs.summary || "";
+    renderRiskGauge("risk-gauge-chart", score, level);
+
+    // Compliance mini
+    const compEl = document.getElementById("compliance-pct");
+    compEl.textContent = compPct + "%";
+    compEl.style.color = compPct >= 70 ? "#2ed573" : compPct >= 40 ? "#ffa502" : "#ff4757";
+    document.getElementById("compliance-desc").textContent =
+      compPct >= 90 ? "Excellent Compliance" : compPct >= 70 ? "Good Compliance" :
+      compPct >= 40 ? "Partial Compliance"   : "Poor Compliance";
+    document.getElementById("compliance-detail").textContent =
+      `${comp.passed||0} of ${(comp.passed||0)+(comp.failed||0)} OWASP categories clean`;
+    renderComplianceMiniChart("compliance-mini-chart", compPct);
+
+    // Priority ranking
+    const pr = recs.priority_ranking || {};
+    const prEl = document.getElementById("priority-ranking-body");
+    const prData = [
+      { label:"Critical", count: pr.critical||risk.critical_count||0, color:"#ff4757" },
+      { label:"High",     count: pr.high||risk.high_count||0,         color:"#ff6b35" },
+      { label:"Medium",   count: pr.medium||risk.medium_count||0,     color:"#ffa502" },
+      { label:"Low",      count: pr.low||risk.low_count||0,           color:"#2ed573" },
+    ];
+    const prMax = Math.max(...prData.map(d=>d.count), 1);
+    prEl.innerHTML = prData.map(d => `
+      <div>
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+          <span style="font-size:12px;color:#94a3b8">${d.label}</span>
+          <span style="font-size:12px;font-weight:700;color:${d.color}">${d.count}</span>
+        </div>
+        <div style="height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden">
+          <div style="width:${(d.count/prMax)*100}%;height:100%;background:${d.color};border-radius:3px;transition:width 0.6s"></div>
+        </div>
+      </div>
+    `).join("");
+
+    // Trend card
+    if (trend && (trend.new_issues > 0 || trend.resolved_issues > 0 || (trend.new_endpoints||[]).length > 0)) {
+      document.getElementById("trend-card").style.display = "";
+      const trendDeltaColor = (trend.risk_delta||0) > 0 ? "#ff4757" : "#2ed573";
+      const trendDeltaIcon  = (trend.risk_delta||0) > 0 ? "⬆" : "⬇";
+      document.getElementById("trend-body").innerHTML = `
+        <div class="stat-grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px">
+          <div class="stat-card" style="padding:12px">
+            <div class="stat-value" style="color:#ff4757;font-size:22px">${trend.new_issues||0}</div>
+            <div class="stat-label">New Issues</div>
+          </div>
+          <div class="stat-card" style="padding:12px">
+            <div class="stat-value" style="color:#2ed573;font-size:22px">${trend.resolved_issues||0}</div>
+            <div class="stat-label">Resolved</div>
+          </div>
+          <div class="stat-card" style="padding:12px">
+            <div class="stat-value" style="color:#22d3ee;font-size:22px">${(trend.new_endpoints||[]).length}</div>
+            <div class="stat-label">New Endpoints</div>
+          </div>
+          <div class="stat-card" style="padding:12px">
+            <div class="stat-value" style="color:${trendDeltaColor};font-size:22px">${trendDeltaIcon} ${Math.abs(trend.risk_delta||0)}</div>
+            <div class="stat-label">Risk Delta</div>
+          </div>
+        </div>
+        ${(trend.auth_changes||[]).length>0 ? `<div class="text-muted text-sm" style="margin-bottom:8px">${trend.auth_changes.length} auth type change(s) detected</div>` : ""}
+        ${trend.previous_session_id ? `<div class="text-muted text-sm">Compared to Session #${trend.previous_session_id}</div>` : ""}
+      `;
+    }
+
+    // CVSS breakdown table
+    const breakdown = risk.cvss_breakdown || [];
+    const tbody = document.getElementById("cvss-tbody");
+    tbody.innerHTML = breakdown.length === 0
+      ? `<tr><td colspan="4" class="text-muted text-sm" style="text-align:center;padding:20px">No findings to display</td></tr>`
+      : breakdown.map(b => `
+          <tr>
+            <td>${escHtml(b.vuln_type||"Unknown")}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="flex:1;height:6px;background:rgba(255,255,255,.05);border-radius:3px;overflow:hidden">
+                  <div style="width:${(b.cvss_score/10)*100}%;height:100%;background:${cvssBarColor(b.cvss_score)};border-radius:3px"></div>
+                </div>
+                <span style="font-family:monospace;font-weight:700;color:${cvssBarColor(b.cvss_score)}">${b.cvss_score}</span>
+              </div>
+            </td>
+            <td>${severityBadge(b.severity)}</td>
+            <td>${owaspBadge(b.owasp_category)}</td>
+          </tr>
+        `).join("");
+
+    // Severity chart
+    renderSeverityChart("analysis-sev-chart", {
+      critical: risk.critical_count||0, high: risk.high_count||0,
+      medium: risk.medium_count||0, low: risk.low_count||0,
+    });
+
+    // Compliance table
+    const compCats = comp.categories || owasp.categories || [];
+    document.getElementById("compliance-tbody").innerHTML = compCats.map(c => {
+      const isPass = c.status === "PASS" || !c.found;
+      return `<tr>
+        <td><span class="badge badge-owasp">${c.category}</span></td>
+        <td style="font-size:12px">${escHtml(c.name||"")}</td>
+        <td><span style="font-size:11px;font-weight:700;color:${isPass?"#2ed573":"#ff4757"};background:${isPass?"rgba(46,213,115,.1)":"rgba(255,71,87,.1)"};padding:3px 8px;border-radius:4px">${isPass?"✅ PASS":"❌ FAIL"}</span></td>
+        <td>${(c.count||0) > 0 ? `<span style="color:#ff6b35;font-weight:700">${c.count}</span>` : "<span class='text-muted'>0</span>"}</td>
+        <td>${c.severity ? severityBadge(c.severity) : "<span class='text-muted'>—</span>"}</td>
+      </tr>`;
+    }).join("");
+
+    // Specific recommendations
+    const specRecs = recs.specific_recommendations || [];
+    document.getElementById("recommendations-list").innerHTML = specRecs.length === 0
+      ? `<div class="text-muted text-sm">No specific recommendations — no vulnerabilities found.</div>`
+      : specRecs.map((r, i) => `
+          <div class="rec-card">
+            <div class="rec-header" onclick="this.nextElementSibling.classList.toggle('open')">
+              <div class="rec-priority">${i+1}</div>
+              <div>
+                <div class="rec-title">${escHtml(r.title||"Recommendation")}</div>
+                <div class="rec-meta">
+                  ${r.effort ? `<span>Effort: ${r.effort}</span>` : ""}
+                  ${r.impact ? `<span>Impact: ${r.impact}</span>` : ""}
+                </div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+            </div>
+            <div class="rec-body">
+              <ul class="rec-steps">${(r.steps||[]).map(s=>`<li>${escHtml(s)}</li>`).join("")}</ul>
+              ${r.references&&r.references.length>0?`<div class="text-muted text-sm" style="margin-top:10px">References: ${r.references.join(" • ")}</div>`:""}
+            </div>
+          </div>
+        `).join("");
+
+    // General recommendations
+    const genRecs = recs.general_recommendations || [];
+    document.getElementById("general-recs-list").innerHTML = genRecs.map((r,i)=>`
+      <div class="rec-card">
+        <div class="rec-header" onclick="this.nextElementSibling.classList.toggle('open')">
+          <div class="rec-priority" style="background:rgba(124,58,237,0.3)">${i+1}</div>
+          <div><div class="rec-title">${escHtml(r.title||"Best Practice")}</div></div>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+        </div>
+        <div class="rec-body"><p class="text-muted">${escHtml(r.detail||"")}</p></div>
+      </div>
+    `).join("");
+
+    showToast("Analysis complete!", "success");
+  } catch(e) {
+    showToast("Analysis failed: " + e.message, "error");
+    console.error(e);
+  }
+}
+
+function cvssBarColor(score) {
+  if (score >= 9) return "#ff4757";
+  if (score >= 7) return "#ff6b35";
+  if (score >= 4) return "#ffa502";
+  return "#2ed573";
+}
+
+function renderComplianceMiniChart(canvasId, pct) {
+  const ctx = document.getElementById(canvasId).getContext("2d");
+  if (complianceMiniChart) complianceMiniChart.destroy();
+  const color = pct >= 70 ? "#2ed573" : pct >= 40 ? "#ffa502" : "#ff4757";
+  complianceMiniChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      datasets: [{ data: [pct, 100-pct], backgroundColor: [color, "rgba(255,255,255,.05)"], borderWidth: 0 }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: "75%", plugins:{ legend:{display:false} } },
+  });
+}
+
+function downloadReport(format) {
+  if (!analysisSessionId) return;
+  window.open(`/api/monitor/report/${analysisSessionId}/${format}`, "_blank");
+}
+</script>
+{% endblock %}

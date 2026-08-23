@@ -1,0 +1,265 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Security Dashboard{% endblock %}
+{% block page_subtitle %}Real-time API security overview, continuous metrics, and risk monitoring{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary btn-sm" onclick="window.location='/discovery'">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    New Scan
+  </button>
+{% endblock %}
+
+{% block content %}
+<!-- Top Executive Summary Grid (Security Score + Key Metrics) -->
+<div class="stat-grid mb-6" style="grid-template-columns: repeat(4, 1fr);" id="stat-grid">
+  <!-- Security Score Card -->
+  <div class="stat-card" style="grid-column: span 1; border-color: rgba(46, 213, 115, 0.3); background: linear-gradient(135deg, rgba(15, 18, 41, 0.9), rgba(16, 185, 129, 0.05));">
+    <div class="stat-label">Average Security Score</div>
+    <div class="stat-value" id="stat-security-score" style="color: #2ed573;">—</div>
+    <div class="stat-sub" id="stat-security-sub">Across all endpoints (0–100)</div>
+    <div class="stat-icon">🏆</div>
+  </div>
+
+  <!-- Compliance Score Card -->
+  <div class="stat-card" style="grid-column: span 1; border-color: rgba(34, 211, 238, 0.3); background: linear-gradient(135deg, rgba(15, 18, 41, 0.9), rgba(34, 211, 238, 0.05));">
+    <div class="stat-label">OWASP Compliance</div>
+    <div class="stat-value" id="stat-compliance-score" style="color: #22d3ee;">—</div>
+    <div class="stat-sub">Clean categories percentage</div>
+    <div class="stat-icon">🛡️</div>
+  </div>
+
+  <!-- API Inventory Count -->
+  <div class="stat-card info">
+    <div class="stat-label">Discovered APIs</div>
+    <div class="stat-value" id="stat-api-count">—</div>
+    <div class="stat-sub">Tracked API surfaces</div>
+    <div class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#00d4ff" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><line x1="12" y1="12" x2="12" y2="16"/></svg></div>
+  </div>
+
+  <!-- Total Scans -->
+  <div class="stat-card safe">
+    <div class="stat-label">Total Scans</div>
+    <div class="stat-value" id="stat-total-scans">—</div>
+    <div class="stat-sub">Completed assessments</div>
+    <div class="stat-icon"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg></div>
+  </div>
+</div>
+
+<!-- Secondary Metrics -->
+<div class="stat-grid mb-6" style="grid-template-columns: repeat(4, 1fr);">
+  <div class="stat-card critical">
+    <div class="stat-label">Critical Vulns</div>
+    <div class="stat-value" id="stat-critical">—</div>
+    <div class="stat-sub">Immediate action required</div>
+  </div>
+  <div class="stat-card high">
+    <div class="stat-label">High Severity</div>
+    <div class="stat-value" id="stat-high">—</div>
+    <div class="stat-sub">Urgent remediation needed</div>
+  </div>
+  <div class="stat-card medium">
+    <div class="stat-label">Medium Severity</div>
+    <div class="stat-value" id="stat-medium">—</div>
+    <div class="stat-sub">Scheduled remediation</div>
+  </div>
+  <div class="stat-card critical">
+    <div class="stat-label">Unacknowledged Alerts</div>
+    <div class="stat-value" id="stat-alerts">—</div>
+    <div class="stat-sub">Active notifications</div>
+  </div>
+</div>
+
+<!-- Charts Row -->
+<div class="grid-2 mb-6">
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
+      Vulnerability Severity Breakdown
+    </div>
+    <div style="height:220px;position:relative">
+      <canvas id="severity-chart"></canvas>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/></svg>
+      Security Score Trend
+    </div>
+    <div style="height:220px;position:relative">
+      <canvas id="dashboard-trend-chart"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Recent Scans + Recent Alerts -->
+<div class="grid-2">
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Recent Scans</div>
+        <div class="section-subtitle">Latest scan sessions &amp; scores</div>
+      </div>
+      <a href="/report" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead><tr><th>Target</th><th>Type</th><th>Status</th><th>Score</th><th>Date</th></tr></thead>
+        <tbody id="recent-scans-tbody">
+          <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title">Recent Alerts</div>
+        <div class="section-subtitle">Unacknowledged security alerts</div>
+      </div>
+      <a href="/monitor" class="btn btn-secondary btn-sm">View All</a>
+    </div>
+    <div id="alerts-list">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg>
+        <p>No recent alerts</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let trendChartObj = null;
+
+async function loadDashboard() {
+  try {
+    const [stats, scans, alerts, trendData] = await Promise.all([
+      apiGet("/api/monitor/stats"),
+      apiGet("/api/monitor/scans"),
+      apiGet("/api/monitor/alerts"),
+      apiGet("/api/dashboard/trend"),
+    ]);
+
+    // Update Top Executive Cards
+    const ss = stats.avg_security_score;
+    const ssEl = document.getElementById("stat-security-score");
+    if (ss !== null && ss !== undefined) {
+      ssEl.textContent = ss + "/100";
+      ssEl.style.color = ss >= 70 ? "#2ed573" : ss >= 40 ? "#ffa502" : "#ff4757";
+    } else {
+      ssEl.textContent = "N/A";
+    }
+
+    const cs = stats.avg_compliance_score;
+    const csEl = document.getElementById("stat-compliance-score");
+    if (cs !== null && cs !== undefined) {
+      csEl.textContent = cs + "%";
+      csEl.style.color = cs >= 70 ? "#22d3ee" : cs >= 40 ? "#ffa502" : "#ff4757";
+    } else {
+      csEl.textContent = "N/A";
+    }
+
+    document.getElementById("stat-api-count").textContent = stats.api_count ?? 0;
+    document.getElementById("stat-total-scans").textContent = stats.total_scans ?? 0;
+    document.getElementById("stat-critical").textContent = stats.critical_vulns ?? 0;
+    document.getElementById("stat-high").textContent = stats.high_vulns ?? 0;
+    document.getElementById("stat-medium").textContent = stats.medium_vulns ?? 0;
+    document.getElementById("stat-alerts").textContent = stats.unacked_alerts ?? 0;
+
+    // Charts
+    renderSeverityChart("severity-chart", {
+      critical: stats.critical_vulns ?? 0,
+      high: stats.high_vulns ?? 0,
+      medium: stats.medium_vulns ?? 0,
+      low: stats.low_vulns ?? 0
+    });
+
+    renderTrendChart("dashboard-trend-chart", trendData);
+
+    // Recent scans table
+    const tbody = document.getElementById("recent-scans-tbody");
+    if (!scans || scans.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">No scans yet. <a href="/discovery">Run your first scan →</a></td></tr>`;
+    } else {
+      tbody.innerHTML = scans.slice(0, 8).map(s => {
+        const score = s.security_score;
+        const scoreColor = score !== null && score !== undefined ? (score >= 70 ? "#2ed573" : score >= 40 ? "#ffa502" : "#ff4757") : "#94a3b8";
+        return `
+          <tr>
+            <td class="mono truncate" style="max-width:160px" title="${escHtml(s.target_url)}">${escHtml(s.target_url)}</td>
+            <td><span class="badge badge-owasp">${s.scan_type}</span></td>
+            <td>${statusBadge(s.status)}</td>
+            <td><span style="font-weight:700;color:${scoreColor}">${score !== null && score !== undefined ? score + "/100" : "—"}</span></td>
+            <td class="text-muted text-sm">${timeAgo(s.created_at)}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    // Alerts
+    const alertsList = document.getElementById("alerts-list");
+    const unacked = (alerts || []).filter(a => !a.acknowledged).slice(0, 5);
+    if (unacked.length === 0) {
+      alertsList.innerHTML = `<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/></svg><p>No unacknowledged alerts</p></div>`;
+    } else {
+      alertsList.innerHTML = unacked.map(a => `
+        <div class="alert-item ${(a.severity||"INFO").toLowerCase()}">
+          <div class="alert-icon">⚠️</div>
+          <div class="alert-body">
+            <div class="alert-message">${escHtml(a.message)}</div>
+            <div class="alert-time">${timeAgo(a.created_at)} · ${severityBadge(a.severity)}</div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+  } catch(e) {
+    showToast("Failed to load dashboard data", "error");
+    console.error(e);
+  }
+}
+
+function renderTrendChart(canvasId, trendData) {
+  const el = document.getElementById(canvasId);
+  if (!el || !trendData) return;
+  const ctx = el.getContext("2d");
+  if (trendChartObj) trendChartObj.destroy();
+
+  const labels = trendData.map(d => `#${d.session_id}`);
+  const scores = trendData.map(d => d.security_score ?? null);
+
+  trendChartObj = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: labels,
+      datasets: [{
+        label: "Security Score",
+        data: scores,
+        borderColor: "#2ed573",
+        backgroundColor: "rgba(46,213,115,0.1)",
+        borderWidth: 2,
+        pointBackgroundColor: "#2ed573",
+        pointRadius: 4,
+        tension: 0.4,
+        fill: true,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, max: 100, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8" } },
+        x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8" } }
+      },
+      plugins: { legend: { display: false } }
+    }
+  });
+}
+
+loadDashboard();
+</script>
+{% endblock %}

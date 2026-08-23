@@ -1,0 +1,350 @@
+{% extends "base.html" %}
+{% block title %}API Discovery{% endblock %}
+{% block page_title %}API Discovery &amp; Auth Testing{% endblock %}
+{% block page_subtitle %}Module 1 — Discover endpoints, classify API surfaces, and audit authentication mechanisms{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-secondary btn-sm" onclick="openModal('jwt-modal')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M12 17v-2m0 0a2 2 0 100-4 2 2 0 000 4z"/></svg>
+    JWT Analyzer
+  </button>
+{% endblock %}
+
+{% block content %}
+<!-- Scan Form -->
+<div class="card scan-form-card mb-6">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+    Target API Configuration
+  </div>
+  <div class="grid-2" style="gap:14px;margin-bottom:14px">
+    <div class="form-group" style="margin:0">
+      <label class="form-label">Target URL</label>
+      <input type="url" class="form-input" id="target-url" placeholder="http://localhost:5001" value="http://localhost:5001">
+    </div>
+    <div class="form-group" style="margin:0">
+      <label class="form-label">JWT Token (optional)</label>
+      <input type="text" class="form-input" id="jwt-token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
+    </div>
+  </div>
+  <div style="display:flex;gap:10px;align-items:center">
+    <button class="btn btn-primary" id="start-scan-btn" onclick="startDiscovery()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+      Start Discovery Scan
+    </button>
+    <button class="btn btn-secondary" onclick="prefillDemo()">Use Demo Target</button>
+    <div id="scan-status-container" style="flex:1;display:none"></div>
+  </div>
+</div>
+
+<!-- Live Log -->
+<div id="log-card" class="card mb-6" style="display:none">
+  <div class="card-title">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    Scan Log
+  </div>
+  <div class="log-console" id="scan-log"></div>
+</div>
+
+<!-- Results -->
+<div id="results-section" style="display:none">
+  <!-- Stats & API Version Metadata Row -->
+  <div class="stat-grid mb-6" style="grid-template-columns:repeat(5,1fr)">
+    <div class="stat-card info">
+      <div class="stat-label">Endpoints Found</div>
+      <div class="stat-value" id="ep-count">0</div>
+      <div class="stat-sub">Total discovered</div>
+    </div>
+    <div class="stat-card safe">
+      <div class="stat-label">API Surface Name</div>
+      <div class="stat-value" id="api-name-card" style="font-size:16px;margin-top:4px">—</div>
+      <div class="stat-sub" id="api-version-card">Version: —</div>
+    </div>
+    <div class="stat-card safe">
+      <div class="stat-label">OpenAPI Spec</div>
+      <div class="stat-value" id="ep-swagger">0</div>
+      <div class="stat-sub">Swagger discovered</div>
+    </div>
+    <div class="stat-card critical">
+      <div class="stat-label">Auth Vulnerabilities</div>
+      <div class="stat-value" id="auth-vuln-count">0</div>
+      <div class="stat-sub">Failed checks</div>
+    </div>
+    <div class="stat-card medium">
+      <div class="stat-label">Auth Checks</div>
+      <div class="stat-value" id="auth-total-count">0</div>
+      <div class="stat-sub">Tests performed</div>
+    </div>
+  </div>
+
+  <!-- Classification Chart Row -->
+  <div class="card mb-6" id="classification-card" style="display:none">
+    <div class="card-title">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+      Endpoint Classification Surface Breakdown
+    </div>
+    <div style="display:flex;align-items:center;gap:32px;padding:8px 0">
+      <div style="width:160px;height:160px;flex-shrink:0">
+        <canvas id="discovery-class-chart"></canvas>
+      </div>
+      <div id="discovery-class-legend" style="display:flex;flex-wrap:wrap;gap:12px;flex:1"></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Endpoints Table -->
+    <div class="card">
+      <div class="section-header">
+        <div><div class="section-title">Discovered Endpoints</div></div>
+        <button class="btn btn-primary btn-sm" onclick="runVulnScan()" id="run-vuln-btn" style="display:none">
+          Run Vulnerability Scan →
+        </button>
+      </div>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>Method</th><th>Path</th><th>Category</th><th>Auth</th><th>Source</th></tr></thead>
+          <tbody id="endpoints-tbody">
+            <tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">Run a scan to discover endpoints</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Auth Test Results -->
+    <div class="card">
+      <div class="section-title mb-4">Authentication Test Results</div>
+      <div id="auth-results-list">
+        <div class="empty-state">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M12 17v-2m0 0a2 2 0 100-4 2 2 0 000 4z"/></svg>
+          <p>Auth test results will appear here</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- JWT Analyzer Modal -->
+<div class="modal-overlay" id="jwt-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">🔑 JWT Token Analyzer</div>
+      <button class="modal-close" onclick="closeModal('jwt-modal')">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">JWT Token</label>
+      <textarea class="form-textarea" id="jwt-input" rows="4" placeholder="Paste your JWT token here..."></textarea>
+    </div>
+    <button class="btn btn-primary w-full" onclick="analyzeJwt()">Analyze Token</button>
+    <div id="jwt-results" style="margin-top:16px;display:none"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentSessionId = null;
+let discoveryClassChart = null;
+
+const CAT_COLORS = {
+  Auth:    "#818cf8",
+  Admin:   "#f87171",
+  User:    "#34d399",
+  Payment: "#fbbf24",
+  Data:    "#22d3ee",
+  Health:  "#a3e635",
+  Public:  "#94a3b8",
+};
+
+function prefillDemo() {
+  document.getElementById("target-url").value = "http://localhost:5001";
+}
+
+async function startDiscovery() {
+  const url = document.getElementById("target-url").value.trim();
+  if (!url) { showToast("Please enter a target URL", "error"); return; }
+  const token = document.getElementById("jwt-token").value.trim() || null;
+
+  const btn = document.getElementById("start-scan-btn");
+  btn.disabled = true; btn.innerHTML = '<div class="spinner"></div> Scanning...';
+
+  document.getElementById("log-card").style.display = "";
+  document.getElementById("results-section").style.display = "none";
+  document.getElementById("scan-log").innerHTML = "";
+
+  try {
+    const res = await apiPost("/api/discovery/start", { target_url: url, jwt_token: token });
+    currentSessionId = res.session_id;
+    showStatusBar("running", "Discovery scan running...");
+
+    const logEl = document.getElementById("scan-log");
+    connectSSE(currentSessionId, logEl, (data) => {
+      if (data.type === "discovery_complete") {
+        document.getElementById("ep-count").textContent = data.endpoint_count;
+        document.getElementById("ep-swagger").textContent = data.swagger_found ? "Yes" : "0";
+        if (data.api_name) document.getElementById("api-name-card").textContent = data.api_name;
+        if (data.api_version) document.getElementById("api-version-card").textContent = `Version: ${data.api_version}`;
+        if (data.classification) {
+          renderDiscoveryClassification(data.classification);
+        }
+      }
+      if (data.type === "auth_complete") {
+        document.getElementById("auth-vuln-count").textContent = data.vulnerabilities;
+        document.getElementById("auth-total-count").textContent = data.total_checks;
+      }
+      if (data.type === "status" && data.status === "COMPLETED") {
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start Discovery Scan';
+        showStatusBar("completed", "Discovery complete!");
+        loadResults(currentSessionId);
+      }
+      if (data.type === "status" && data.status === "FAILED") {
+        btn.disabled = false;
+        btn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Start Discovery Scan';
+        showStatusBar("failed", "Scan failed: " + (data.error || "Unknown error"));
+      }
+    });
+  } catch(e) {
+    showToast("Failed to start scan: " + e.message, "error");
+    btn.disabled = false;
+    btn.textContent = "Start Discovery Scan";
+  }
+}
+
+function renderDiscoveryClassification(breakdown) {
+  document.getElementById("classification-card").style.display = "";
+  const ctx = document.getElementById("discovery-class-chart").getContext("2d");
+  if (discoveryClassChart) discoveryClassChart.destroy();
+
+  const labels = Object.keys(breakdown);
+  const values = Object.values(breakdown);
+  const colors = labels.map(l => CAT_COLORS[l] || "#94a3b8");
+
+  discoveryClassChart = new Chart(ctx, {
+    type: "doughnut",
+    data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: false, cutout: "70%",
+      plugins: { legend: { display: false } }
+    }
+  });
+
+  const legend = document.getElementById("discovery-class-legend");
+  legend.innerHTML = labels.map((l, i) => `
+    <div style="display:flex;align-items:center;gap:6px;background:rgba(255,255,255,0.03);padding:6px 12px;border-radius:6px;border:1px solid rgba(255,255,255,0.05)">
+      <div style="width:10px;height:10px;border-radius:2px;background:${colors[i]}"></div>
+      <span style="font-size:12px;color:#cbd5e1;font-weight:600">${l}:</span>
+      <span style="font-size:12px;color:#7dd3fc;font-weight:700">${values[i]}</span>
+    </div>
+  `).join("");
+}
+
+function showStatusBar(type, msg) {
+  const c = document.getElementById("scan-status-container");
+  c.style.display = "";
+  const icons = { running: '<div class="spinner"></div>', completed: "✅", failed: "❌" };
+  c.innerHTML = `<div class="scan-status-bar ${type}">${icons[type]}<span>${msg}</span></div>`;
+}
+
+async function loadResults(sessionId) {
+  document.getElementById("results-section").style.display = "";
+  const [endpoints, authResults, classRes] = await Promise.all([
+    apiGet(`/api/discovery/${sessionId}/endpoints`),
+    apiGet(`/api/discovery/${sessionId}/auth`),
+    apiGet(`/api/discovery/${sessionId}/classify`).catch(() => null),
+  ]);
+
+  if (classRes && classRes.breakdown) {
+    renderDiscoveryClassification(classRes.breakdown);
+  }
+
+  // Endpoints table
+  const tbody = document.getElementById("endpoints-tbody");
+  if (endpoints.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="5" class="text-muted text-sm" style="text-align:center;padding:20px">No endpoints discovered</td></tr>`;
+  } else {
+    tbody.innerHTML = endpoints.map(ep => {
+      const methodColors = {GET:"#2ed573",POST:"#ffa502",PUT:"#70a1ff",DELETE:"#ff4757",PATCH:"#a78bfa"};
+      const mColor = methodColors[ep.method] || "#94a3b8";
+      const cat = ep.category || "Public";
+      const catColor = CAT_COLORS[cat] || "#94a3b8";
+
+      return `<tr>
+        <td><span style="color:${mColor};font-weight:700;font-family:monospace">${ep.method}</span></td>
+        <td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis" title="${escHtml(ep.path)}">${escHtml(ep.path)}</td>
+        <td><span style="font-size:11px;background:rgba(0,0,0,.3);color:${catColor};padding:2px 7px;border-radius:4px;border:1px solid ${catColor}40">${cat}</span></td>
+        <td>${ep.auth_required ? `<span class="badge badge-medium">${ep.auth_type||'Required'}</span>` : '<span class="badge badge-success">None</span>'}</td>
+        <td><span class="badge badge-owasp">${ep.source}</span></td>
+      </tr>`;
+    }).join("");
+    document.getElementById("run-vuln-btn").style.display = "";
+    document.getElementById("ep-count").textContent = endpoints.length;
+    const swaggerCount = endpoints.filter(e => e.source === "swagger").length;
+    document.getElementById("ep-swagger").textContent = swaggerCount ? "Yes" : "0";
+  }
+
+  // Auth results
+  const authList = document.getElementById("auth-results-list");
+  const vulns = authResults.filter(r => !r.passed);
+  document.getElementById("auth-vuln-count").textContent = vulns.length;
+  document.getElementById("auth-total-count").textContent = authResults.length;
+
+  if (authResults.length === 0) {
+    authList.innerHTML = `<div class="empty-state"><p>No auth tests were performed</p></div>`;
+  } else {
+    authList.innerHTML = authResults.map(r => `
+      <div class="alert-item ${r.passed ? '' : (r.severity||'medium').toLowerCase()}" style="margin-bottom:8px">
+        <div class="alert-icon">${r.passed ? '✅' : '⚠️'}</div>
+        <div class="alert-body">
+          <div class="alert-message" style="display:flex;align-items:center;gap:8px">
+            <strong>${escHtml(r.test_name)}</strong>
+            ${r.passed ? '<span class="badge badge-success">PASS</span>' : severityBadge(r.severity)}
+          </div>
+          <div class="alert-time">${escHtml(r.detail||'')}</div>
+          ${r.category ? `<div style="margin-top:4px"><span class="badge badge-owasp">${r.category}</span></div>` : ''}
+        </div>
+      </div>
+    `).join("");
+  }
+}
+
+async function runVulnScan() {
+  if (!currentSessionId) return;
+  window.location = `/vuln-scan?session=${currentSessionId}&url=${encodeURIComponent(document.getElementById("target-url").value)}`;
+}
+
+async function analyzeJwt() {
+  const token = document.getElementById("jwt-input").value.trim();
+  if (!token) { showToast("Paste a JWT token first", "error"); return; }
+
+  try {
+    const result = await apiPost("/api/discovery/analyze-jwt", { token });
+    const container = document.getElementById("jwt-results");
+    container.style.display = "";
+    const decoded = result.decoded || {};
+    const header = decoded.header || {};
+    const payload = decoded.payload || {};
+
+    let html = `<div class="divider"></div>`;
+    html += `<div class="card-title">Decoded Token</div>`;
+    html += `<div class="detail-row"><div class="detail-label">Algorithm</div><div class="detail-value mono">${header.alg || "—"}</div></div>`;
+    html += `<div class="detail-row"><div class="detail-label">Header</div><div class="detail-value"><div class="code-block">${JSON.stringify(header, null, 2)}</div></div></div>`;
+    html += `<div class="detail-row"><div class="detail-label">Payload</div><div class="detail-value"><div class="code-block">${JSON.stringify(payload, null, 2)}</div></div></div>`;
+
+    if (result.weak_secret_cracked) {
+      html += `<div class="alert-item critical" style="margin-top:12px"><div class="alert-icon">💀</div><div class="alert-body"><div class="alert-message"><strong>CRITICAL: JWT Secret Cracked!</strong></div><div class="alert-time">Secret is a common weak value — tokens can be forged</div></div></div>`;
+    }
+    if (result.alg_none_vulnerable) {
+      html += `<div class="alert-item critical" style="margin-top:8px"><div class="alert-icon">⚠️</div><div class="alert-body"><div class="alert-message"><strong>CRITICAL: alg:none Attack Possible</strong></div><div class="alert-time">This token structure accepts unsigned tokens</div></div></div>`;
+    }
+    if (result.claims_issues && result.claims_issues.length > 0) {
+      html += `<div style="margin-top:12px"><div class="card-title">Claim Issues</div>`;
+      html += result.claims_issues.map(i => `<div class="alert-item ${(i.severity||'info').toLowerCase()}" style="margin-bottom:6px"><div class="alert-icon">⚠️</div><div class="alert-body"><div class="alert-message">${escHtml(i.issue)}</div><div class="alert-time">${escHtml(i.detail)}</div></div></div>`).join("");
+      html += `</div>`;
+    }
+    container.innerHTML = html;
+  } catch(e) {
+    showToast("JWT analysis failed: " + e.message, "error");
+  }
+}
+</script>
+{% endblock %}

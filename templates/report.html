@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Scan History{% endblock %}
+{% block page_title %}Scan History &amp; Multi-Format Export Reports{% endblock %}
+{% block page_subtitle %}Browse past scan sessions, view security scores, and download reports in PDF, HTML, CSV, or JSON{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="section-header mb-4">
+    <div><div class="section-title">All Scan Sessions</div></div>
+    <div style="display:flex;gap:8px">
+      <input type="text" class="form-input" id="search-input" placeholder="Search by URL..." style="width:220px" oninput="filterScans()">
+      <select class="form-select" id="status-filter" onchange="filterScans()" style="width:140px;padding:10px 14px">
+        <option value="">All Status</option>
+        <option value="COMPLETED">Completed</option>
+        <option value="FAILED">Failed</option>
+        <option value="RUNNING">Running</option>
+        <option value="PENDING">Pending</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Session</th><th>Target URL</th><th>Scan Type</th><th>Status</th><th>Findings</th><th>Security Score</th>
+          <th>Started</th><th>Duration</th><th>Download Reports</th>
+        </tr>
+      </thead>
+      <tbody id="scans-tbody">
+        <tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div id="pagination" style="display:flex;justify-content:center;gap:8px;margin-top:16px;padding-top:16px;border-top:1px solid var(--border)"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allScans = [];
+
+async function loadScans() {
+  allScans = await apiGet("/api/monitor/scans");
+  renderScans(allScans);
+}
+
+function filterScans() {
+  const q = document.getElementById("search-input").value.toLowerCase();
+  const status = document.getElementById("status-filter").value;
+  const filtered = allScans.filter(s =>
+    (!q || s.target_url.toLowerCase().includes(q)) &&
+    (!status || s.status === status)
+  );
+  renderScans(filtered);
+}
+
+function renderScans(scans) {
+  const tbody = document.getElementById("scans-tbody");
+  if (scans.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="9" class="text-muted text-sm" style="text-align:center;padding:24px">No scans found. <a href="/discovery">Start your first scan →</a></td></tr>`;
+    return;
+  }
+  tbody.innerHTML = scans.map(s => {
+    const duration = s.completed_at && s.created_at
+      ? Math.round((new Date(s.completed_at+"Z") - new Date(s.created_at+"Z")) / 1000) + "s"
+      : s.status === "RUNNING" ? "In progress" : "—";
+    const score = s.security_score;
+    const scoreColor = score !== null && score !== undefined ? (score >= 70 ? "#2ed573" : score >= 40 ? "#ffa502" : "#ff4757") : "#94a3b8";
+
+    return `<tr>
+      <td class="mono text-muted">#${s.id}</td>
+      <td class="mono text-sm truncate" style="max-width:180px" title="${escHtml(s.target_url)}">${escHtml(s.target_url)}</td>
+      <td><span class="badge badge-owasp">${s.scan_type}</span></td>
+      <td>${statusBadge(s.status)}</td>
+      <td><span style="font-weight:700;color:${(s.finding_count||0)>0?"#ff6b35":"#2ed573"}">${s.finding_count||0}</span></td>
+      <td><span style="font-weight:700;color:${scoreColor}">${score !== null && score !== undefined ? score + "/100" : "—"}</span></td>
+      <td class="text-muted text-sm">${timeAgo(s.created_at)}</td>
+      <td class="text-muted text-sm">${duration}</td>
+      <td>
+        <div style="display:flex;gap:4px;flex-wrap:wrap">
+          <a href="/analysis?session=${s.id}" class="btn btn-secondary btn-sm" title="View Analysis">Analysis</a>
+          <a href="/api/monitor/report/${s.id}/pdf" target="_blank" class="btn btn-secondary btn-sm" title="Download PDF">PDF</a>
+          <a href="/api/monitor/report/${s.id}/html" target="_blank" class="btn btn-secondary btn-sm" title="Download HTML">HTML</a>
+          <a href="/api/monitor/report/${s.id}/csv" target="_blank" class="btn btn-secondary btn-sm" title="Download CSV">CSV</a>
+          <a href="/api/monitor/report/${s.id}/json" target="_blank" class="btn btn-secondary btn-sm" title="Download JSON">JSON</a>
+        </div>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+loadScans();
+</script>
+{% endblock %}
