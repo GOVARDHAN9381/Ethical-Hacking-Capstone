@@ -99,7 +99,7 @@ def discover_hosts(target: str, progress_cb=None) -> list[dict]:
     Returns:
         List of dicts: {ip, mac, hostname, ttl, rtt_ms, method}
     """
-    is_root = (os.geteuid() == 0)
+    is_root = (getattr(os, 'geteuid', lambda: -1)() == 0)  # geteuid() not available on Windows
     hosts_found: dict[str, dict] = {}
 
     def emit(msg):

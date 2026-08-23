@@ -71,7 +71,7 @@ def probe_common_paths(base_url: str, callback=None) -> list[dict]:
             continue
 
         # Consider anything that isn't a 404/410 as "found"
-        if resp.status_code not in (404, 410, 400):
+        if resp.status_code not in (404, 410):
             auth_required, auth_type = _detect_auth_type(resp)
             entry = {
                 "path": path,

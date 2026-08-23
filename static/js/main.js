@@ -100,37 +100,7 @@ async function apiPost(url, body) {
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
-async function apiDelete(url) {
-  const r = await fetch(url, { method: "DELETE" });
-  if (!r.ok) throw new Error(await r.text());
-  return r.json();
-}
-
-// ── Risk Score Chart (doughnut) ────────────────────────────────────────────
-function renderRiskGauge(canvasId, score, riskLevel) {
-  const ctx = document.getElementById(canvasId);
-  if (!ctx) return;
-  const colorMap = {
-    CRITICAL: "#ff4757", HIGH: "#ff6b35", MEDIUM: "#ffa502",
-    LOW: "#2ed573", INFO: "#70a1ff"
-  };
-  const color = colorMap[riskLevel] || "#70a1ff";
-  new Chart(ctx, {
-    type: "doughnut",
-    data: {
-      datasets: [{
-        data: [score, 10 - score],
-        backgroundColor: [color, "rgba(255,255,255,0.05)"],
-        borderWidth: 0, borderRadius: 4,
-      }]
-    },
-    options: {
-      cutout: "75%", responsive: true, maintainAspectRatio: true,
-      plugins: { legend: { display: false }, tooltip: { enabled: false } },
-      animation: { duration: 1000, easing: "easeOutQuart" },
-    }
-  });
-}
+// Note: apiDelete and renderRiskGauge are defined below (lines 228+ and 239+) as the canonical implementations.
 
 // ── Severity Bar Chart ─────────────────────────────────────────────────────
 function renderSeverityChart(canvasId, counts) {

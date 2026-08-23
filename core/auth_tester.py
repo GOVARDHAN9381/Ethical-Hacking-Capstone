@@ -41,7 +41,15 @@ def check_jwt_none_alg(token: str) -> dict:
         header = json.loads(_b64_decode(parts[0]))
         payload = json.loads(_b64_decode(parts[1]))
 
-        # Craft alg:none token
+        # If the token itself already uses alg:none — confirmed vulnerable
+        if header.get("alg", "").lower() == "none":
+            return {
+                "vulnerable": True,
+                "detail": "Token already uses alg:none — server accepts unsigned tokens",
+                "original_alg": "none",
+            }
+
+        # Craft an alg:none token for manual testing (not confirmed until server tested)
         none_header = base64.urlsafe_b64encode(
             json.dumps({"alg": "none", "typ": "JWT"}).encode()
         ).rstrip(b"=").decode()
@@ -51,9 +59,10 @@ def check_jwt_none_alg(token: str) -> dict:
         none_token = f"{none_header}.{payload_b64}."
 
         return {
-            "vulnerable": True,
+            "vulnerable": False,
+            "potential": True,
             "crafted_token": none_token,
-            "detail": "JWT accepts alg:none — signature is not verified",
+            "detail": "alg:none token crafted for testing — submit manually to verify if server accepts it",
             "original_alg": header.get("alg", "unknown"),
         }
     except Exception as e:
