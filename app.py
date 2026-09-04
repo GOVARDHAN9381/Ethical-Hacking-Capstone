@@ -234,12 +234,14 @@ def create_app() -> Flask:
     from app_api.analysis_routes   import analysis_bp
     from app_api.monitor_routes    import monitor_bp
     from app_api.dashboard_routes  import dashboard_bp
+    from vulnerable_api.app        import vuln_target_bp
 
     app.register_blueprint(discovery_bp,  url_prefix="/api/discovery")
     app.register_blueprint(vuln_bp,        url_prefix="/api/vuln")
     app.register_blueprint(analysis_bp,    url_prefix="/api/analysis")
     app.register_blueprint(monitor_bp,     url_prefix="/api/monitor")
     app.register_blueprint(dashboard_bp,   url_prefix="/api/dashboard")
+    app.register_blueprint(vuln_target_bp, url_prefix="/vuln-api")
 
     # ── SSE Stream Endpoint ─────────────────────────────────────────────────
     @app.route("/api/scan/<int:session_id>/stream")

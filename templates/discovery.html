@@ -27,12 +27,13 @@
       <input type="text" class="form-input" id="jwt-token" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...">
     </div>
   </div>
-  <div style="display:flex;gap:10px;align-items:center">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <button class="btn btn-primary" id="start-scan-btn" onclick="startDiscovery()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
       Start Discovery Scan
     </button>
     <button class="btn btn-secondary" onclick="prefillDemo()">Use Demo Target</button>
+    <button class="btn btn-secondary" onclick="prefillPetstore()">Swagger Petstore</button>
     <div id="scan-status-container" style="flex:1;display:none"></div>
   </div>
 </div>
@@ -156,7 +157,15 @@ const CAT_COLORS = {
 };
 
 function prefillDemo() {
-  document.getElementById("target-url").value = "http://localhost:5001";
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    document.getElementById("target-url").value = "http://localhost:5001";
+  } else {
+    document.getElementById("target-url").value = window.location.origin + "/vuln-api";
+  }
+}
+
+function prefillPetstore() {
+  document.getElementById("target-url").value = "https://petstore.swagger.io/v2";
 }
 
 async function startDiscovery() {

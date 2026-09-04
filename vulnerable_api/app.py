@@ -5,8 +5,9 @@ Exposes OWASP API Top 10 vulnerabilities for testing.
 Deploy to Railway / Render / any cloud platform.
 """
 import json, time, os
-from flask import Flask, request, jsonify, make_response
+from flask import Blueprint, Flask, request, jsonify, make_response
 
+vuln_target_bp = Blueprint("vuln_target", __name__)
 app = Flask(__name__)
 
 # ── In-memory "database" ──────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ VALID_TOKENS = {
 _request_log = []
 
 # ── Strip security headers (intentional) ─────────────────────────────────────
-@app.after_request
+@vuln_target_bp.after_request
 def strip_security_headers(response):
     response.headers.pop("X-Content-Type-Options", None)
     response.headers.pop("X-Frame-Options", None)
@@ -41,7 +42,7 @@ def strip_security_headers(response):
     return response
 
 # ── OpenAPI spec (enables Module 1 Swagger parsing) ──────────────────────────
-@app.route("/openapi.json")
+@vuln_target_bp.route("/openapi.json")
 def openapi_spec():
     spec = {
         "openapi": "3.0.0",
@@ -70,7 +71,7 @@ def openapi_spec():
     return jsonify(spec)
 
 # ── Health (info disclosure) ──────────────────────────────────────────────────
-@app.route("/health")
+@vuln_target_bp.route("/health")
 def health():
     """VULN: Exposes DB path, version, debug flag."""
     return jsonify({
@@ -81,7 +82,7 @@ def health():
     })
 
 # ── Login (SQLi + default creds + alg:none) ───────────────────────────────────
-@app.route("/api/v1/login", methods=["POST"])
+@vuln_target_bp.route("/api/v1/login", methods=["POST"])
 def login():
     """VULN: SQLi in username, accepts default credentials, returns alg:none JWT."""
     data = request.get_json() or {}
@@ -117,7 +118,7 @@ def login():
     return jsonify({"error": "Invalid credentials"}), 401
 
 # ── Register (mass assignment) ────────────────────────────────────────────────
-@app.route("/api/v1/register", methods=["POST"])
+@vuln_target_bp.route("/api/v1/register", methods=["POST"])
 def register():
     """VULN: Mass assignment — accepts is_admin, role, balance."""
     data = request.get_json() or {}
@@ -136,12 +137,12 @@ def register():
     return jsonify(new_user), 201
 
 # ── Users (no auth — BOLA) ────────────────────────────────────────────────────
-@app.route("/api/v1/users")
+@vuln_target_bp.route("/api/v1/users")
 def list_users():
     """VULN: No authentication required, returns all users including passwords."""
     return jsonify([u for u in USERS.values()])   # includes password field!
 
-@app.route("/api/v1/users/<int:user_id>")
+@vuln_target_bp.route("/api/v1/users/<int:user_id>")
 def get_user(user_id):
     """VULN: BOLA — no ownership check. Any user ID accessible without auth."""
     user = USERS.get(user_id)
@@ -150,7 +151,7 @@ def get_user(user_id):
     return jsonify(user)  # includes password!
 
 # ── Admin (broken auth + alg:none accepted) ───────────────────────────────────
-@app.route("/api/v1/admin")
+@vuln_target_bp.route("/api/v1/admin")
 def admin_panel():
     """VULN: Accessible without auth. Accepts alg:none JWT."""
     auth = request.headers.get("Authorization", "")
@@ -172,7 +173,7 @@ def admin_panel():
     return jsonify({"admin": True, "user_id": user_id, "users": list(USERS.values())})
 
 # ── Profile (excessive data exposure) ────────────────────────────────────────
-@app.route("/api/v1/profile")
+@vuln_target_bp.route("/api/v1/profile")
 def profile():
     """VULN: Returns sensitive fields — password, SSN, credit_card."""
     auth = request.headers.get("Authorization", "")
@@ -188,7 +189,7 @@ def profile():
     return jsonify(user)
 
 # ── Search (reflected XSS) ────────────────────────────────────────────────────
-@app.route("/api/v1/search")
+@vuln_target_bp.route("/api/v1/search")
 def search():
     """VULN: Reflects raw input — XSS."""
     q = request.args.get("q", "")
@@ -201,13 +202,13 @@ def search():
     return resp
 
 # ── Products (no rate limiting + hidden data) ─────────────────────────────────
-@app.route("/api/v1/products")
+@vuln_target_bp.route("/api/v1/products")
 def products():
     """VULN: Returns hidden products, no rate limiting."""
     return jsonify(PRODUCTS)
 
 # ── Data dump (no rate limiting) ──────────────────────────────────────────────
-@app.route("/api/v1/data")
+@vuln_target_bp.route("/api/v1/data")
 def data_dump():
     """VULN: No rate limiting, returns sensitive data."""
     _request_log.append(time.time())
@@ -217,7 +218,7 @@ def data_dump():
     })
 
 # ── Token in URL (insecure API key) ──────────────────────────────────────────
-@app.route("/api/v1/token_check")
+@vuln_target_bp.route("/api/v1/token_check")
 def token_check():
     """VULN: Accepts API key in URL query parameter."""
     api_key = request.args.get("api_key") or request.args.get("token") or request.args.get("key")
@@ -225,7 +226,12 @@ def token_check():
         return jsonify({"authenticated": True, "note": "API key exposed in URL — visible in logs"})
     return jsonify({"authenticated": False}), 401
 
+# Register blueprint for standalone execution
+app.register_blueprint(vuln_target_bp)
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5001))
+    print(f"[*] Starting Vulnerable Demo API on port {port}...")
     app.run(host="0.0.0.0", port=port, debug=False)
+

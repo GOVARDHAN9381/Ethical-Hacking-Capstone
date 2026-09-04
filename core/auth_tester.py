@@ -159,8 +159,8 @@ def test_api_key_in_url(url: str) -> dict:
 
 
 def test_missing_auth(base_url: str, endpoint_path: str, callback=None) -> dict:
-    """Test if an authenticated endpoint can be accessed without credentials."""
-    url = base_url.rstrip("/") + endpoint_path
+    """Test if an endpoint can be accessed without credentials."""
+    url = base_url.rstrip("/") + ("/" if not endpoint_path.startswith("/") else "") + endpoint_path
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False)
         if resp.status_code in (200, 201, 202):
@@ -172,27 +172,70 @@ def test_missing_auth(base_url: str, endpoint_path: str, callback=None) -> dict:
         return {
             "vulnerable": False,
             "status_code": resp.status_code,
-            "detail": f"Endpoint correctly rejected unauthenticated request (HTTP {resp.status_code})",
+            "detail": f"Endpoint correctly rejected or restricted unauthenticated request (HTTP {resp.status_code})",
         }
     except Exception as e:
         return {"vulnerable": False, "error": str(e)}
 
 
 def test_bola(base_url: str, endpoint_template: str, user_id: int = 1, callback=None) -> dict:
-    """Test for Broken Object Level Authorization by accessing another user's data."""
-    target_id = user_id + 1  # Try to access next user's data
-    path = endpoint_template.replace("{id}", str(target_id)).replace("{user_id}", str(target_id))
-    url = base_url.rstrip("/") + path
+    """Test for Broken Object Level Authorization by accessing another user's/object's data."""
+    target_id = user_id + 1
+    # Replace various common parameter names
+    path = endpoint_template
+    for param in ["{id}", "{user_id}", "{userId}", "{petId}", "{orderId}", "{accountId}", "{book_id}"]:
+        path = path.replace(param, str(target_id))
+    # Also handle username substitution
+    for u_param in ["{username}", "{user}", "{name}"]:
+        path = path.replace(u_param, "admin")
+    
+    url = base_url.rstrip("/") + ("/" if not path.startswith("/") else "") + path
     try:
         resp = requests.get(url, timeout=REQUEST_TIMEOUT, verify=False)
-        if resp.status_code == 200:
+        if resp.status_code in (200, 201, 202):
+            # Check if JSON payload was returned
+            try:
+                data = resp.json()
+                if data:
+                    return {
+                        "vulnerable": True,
+                        "tested_id": target_id,
+                        "status_code": resp.status_code,
+                        "detail": f"BOLA/IDOR: Object data accessed for ID/user '{target_id}' without authorization (HTTP {resp.status_code})",
+                    }
+            except Exception:
+                pass
             return {
                 "vulnerable": True,
                 "tested_id": target_id,
-                "status_code": 200,
-                "detail": f"BOLA: Can access user {target_id} data without authorization",
+                "status_code": resp.status_code,
+                "detail": f"BOLA/IDOR: Endpoint accessible with modified object identifier '{target_id}' (HTTP {resp.status_code})",
             }
-        return {"vulnerable": False, "tested_id": target_id, "status_code": resp.status_code}
+        return {"vulnerable": False, "tested_id": target_id, "status_code": resp.status_code,
+                "detail": f"Object access restricted for ID '{target_id}' (HTTP {resp.status_code})"}
+    except Exception as e:
+        return {"vulnerable": False, "error": str(e)}
+
+
+def test_fake_token_acceptance(base_url: str, endpoint_path: str, callback=None) -> dict:
+    """Test if the server blindly accepts an invalid or alg:none forged Bearer token."""
+    url = base_url.rstrip("/") + ("/" if not endpoint_path.startswith("/") else "") + endpoint_path
+    # Forged alg:none token
+    forged_token = "eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkFkbWluIiwicm9sZSI6ImFkbWluIn0."
+    try:
+        headers = {"Authorization": f"Bearer {forged_token}"}
+        resp = requests.get(url, headers=headers, timeout=REQUEST_TIMEOUT, verify=False)
+        if resp.status_code in (200, 201, 202):
+            return {
+                "vulnerable": True,
+                "status_code": resp.status_code,
+                "detail": f"Server accepted unsigned alg:none forged JWT on {endpoint_path} (HTTP {resp.status_code})",
+            }
+        return {
+            "vulnerable": False,
+            "status_code": resp.status_code,
+            "detail": f"Server correctly rejected unsigned alg:none token (HTTP {resp.status_code})",
+        }
     except Exception as e:
         return {"vulnerable": False, "error": str(e)}
 
@@ -201,16 +244,17 @@ def test_bola(base_url: str, endpoint_template: str, user_id: int = 1, callback=
 
 def run_auth_tests(base_url: str, endpoints: list[dict], token: str | None = None,
                    callback=None) -> list[dict]:
-    """Run all authentication tests against discovered endpoints."""
+    """Run all authentication tests against discovered endpoints and target API."""
     results = []
+    base_url = base_url.rstrip("/")
 
     if callback:
-        callback("Starting authentication tests...")
+        callback("Starting authentication security assessment...")
 
     # 1. JWT analysis if token provided
     if token:
         if callback:
-            callback("Analyzing JWT token...")
+            callback("Analyzing supplied JWT token...")
 
         claims_issues = analyze_jwt_claims(token)
         for issue in claims_issues:
@@ -230,13 +274,13 @@ def run_auth_tests(base_url: str, endpoints: list[dict], token: str | None = Non
             "test_name": "JWT alg:none Attack",
             "category": "JWT",
             "passed": not none_result.get("vulnerable", False),
-            "severity": "CRITICAL" if none_result.get("vulnerable") else None,
+            "severity": "CRITICAL" if none_result.get("vulnerable") else "INFO",
             "detail": none_result.get("detail"),
         })
 
         # Secret brute-force
         if callback:
-            callback("Brute-forcing JWT secret against common weak secrets...")
+            callback("Brute-forcing JWT secret against common weak dictionary...")
         bf = brute_force_jwt_secret(token, callback)
         if bf.get("cracked"):
             results.append({
@@ -255,61 +299,148 @@ def run_auth_tests(base_url: str, endpoints: list[dict], token: str | None = Non
                 "detail": "JWT secret not found in common weak secrets list",
             })
 
-    # 2. Test missing auth on sensitive endpoints
-    sensitive_paths = ["/api/v1/admin", "/api/v1/users", "/admin", "/api/admin",
-                       "/api/v1/settings", "/api/v1/config"]
-    for path in sensitive_paths:
-        matching_ep = next((ep for ep in endpoints if ep.get("path") == path), None)
-        if matching_ep and matching_ep.get("auth_required"):
-            if callback:
-                callback(f"Testing missing auth on {path}...")
-            result = test_missing_auth(base_url, path, callback)
+    # 2. Test missing auth on discovered endpoints & sensitive endpoints
+    sensitive_keywords = ["admin", "user", "account", "profile", "setting", "config", "order", "billing", "payment", "secret", "private"]
+    tested_paths = set()
+    
+    # Collect candidate endpoints to test
+    candidates = []
+    for ep in endpoints:
+        p = ep.get("path", "")
+        if not p or p in tested_paths:
+            continue
+        # High priority: marked auth_required or matches sensitive keywords or write methods
+        is_sensitive = any(kw in p.lower() for kw in sensitive_keywords)
+        if ep.get("auth_required") or is_sensitive or ep.get("method") in ("POST", "PUT", "DELETE"):
+            candidates.append(p)
+            tested_paths.add(p)
+            if len(candidates) >= 5:
+                break
+
+    # If no candidate found from discovery, add standard sensitive probes
+    common_sensitive = ["/api/v1/admin", "/api/v1/users", "/admin", "/api/admin", "/users", "/api/users", "/api/v1/settings"]
+    for p in common_sensitive:
+        if p not in tested_paths and len(candidates) < 6:
+            candidates.append(p)
+            tested_paths.add(p)
+
+    for path in candidates:
+        if callback:
+            callback(f"Testing missing auth on {path}...")
+        result = test_missing_auth(base_url, path, callback)
+        status = result.get("status_code", 0)
+        is_vuln = result.get("vulnerable", False)
+        
+        # If it returns 200 on an admin/sensitive path, it's CRITICAL; if it rejects (401/403), it's PASSED
+        if is_vuln and any(kw in path.lower() for kw in ["admin", "setting", "config", "secret"]):
             results.append({
-                "test_name": f"Missing Auth: {path}",
+                "test_name": f"Broken Auth: Unauthenticated Access to {path}",
                 "category": "BrokenAuth",
-                "passed": not result.get("vulnerable", False),
-                "severity": "CRITICAL" if result.get("vulnerable") else None,
-                "detail": result.get("detail", ""),
+                "passed": False,
+                "severity": "CRITICAL",
+                "detail": f"Critical administrative endpoint accessible without authentication (HTTP {status})",
+                "endpoint_path": path,
+            })
+        elif is_vuln:
+            results.append({
+                "test_name": f"Auth Check: Unauthenticated Access to {path}",
+                "category": "BrokenAuth",
+                "passed": False,
+                "severity": "HIGH",
+                "detail": f"Endpoint accessible without credentials (HTTP {status})",
+                "endpoint_path": path,
+            })
+        else:
+            results.append({
+                "test_name": f"Auth Verification: Access Control on {path}",
+                "category": "BrokenAuth",
+                "passed": True,
+                "severity": "INFO",
+                "detail": result.get("detail", f"Endpoint restricted/protected (HTTP {status})"),
                 "endpoint_path": path,
             })
 
-    # 3. Check for API keys in URLs
+    # 3. Forged / alg:none token acceptance test against API
+    probe_target_path = candidates[0] if candidates else "/"
+    if callback:
+        callback(f"Testing forged alg:none JWT acceptance on {probe_target_path}...")
+    fake_token_res = test_fake_token_acceptance(base_url, probe_target_path, callback)
+    results.append({
+        "test_name": "Forged alg:none JWT Acceptance Test",
+        "category": "JWT",
+        "passed": not fake_token_res.get("vulnerable", False),
+        "severity": "CRITICAL" if fake_token_res.get("vulnerable") else "INFO",
+        "detail": fake_token_res.get("detail", ""),
+        "endpoint_path": probe_target_path,
+    })
+
+    # 4. Check for API keys in query parameters
+    api_key_params = ["api_key", "apikey", "api-key", "token", "access_token", "key", "secret"]
+    exposed_endpoints = []
     for ep in endpoints:
         path = ep.get("path", "")
-        if "?" in path:
-            key_check = test_api_key_in_url(base_url + path)
-            if key_check.get("vulnerable"):
-                results.append({
-                    "test_name": f"API Key in URL: {path}",
-                    "category": "ApiKey",
-                    "passed": False,
-                    "severity": "HIGH",
-                    "detail": key_check.get("detail"),
-                })
+        if any(f"{p}=" in path.lower() or f"?{p}" in path.lower() for p in api_key_params):
+            exposed_endpoints.append(path)
+    
+    if exposed_endpoints:
+        for ep_path in exposed_endpoints[:3]:
+            results.append({
+                "test_name": f"API Key in URL: {ep_path}",
+                "category": "ApiKey",
+                "passed": False,
+                "severity": "HIGH",
+                "detail": f"Sensitive credential/key exposed in URL query string on {ep_path}",
+                "endpoint_path": ep_path,
+            })
+    else:
+        results.append({
+            "test_name": "API Key URL Parameter Check",
+            "category": "ApiKey",
+            "passed": True,
+            "severity": "INFO",
+            "detail": "No API keys or auth tokens discovered in URL query parameters",
+        })
 
-    # 4. BOLA test on user endpoints
-    user_paths = ["/api/v1/users/{id}", "/api/v1/user/{id}", "/users/{id}", "/api/users/{id}"]
-    for path_template in user_paths:
-        ep_match = next(
-            (ep for ep in endpoints if "{id}" in ep.get("path", "") or
-             ep.get("path", "").rstrip("/").split("/")[-1].isdigit()), None
-        )
-        if ep_match or any(p.replace("{id}", "1") in [e.get("path") for e in endpoints]
-                           for p in user_paths):
-            if callback:
-                callback(f"Testing BOLA on user endpoints...")
-            bola = test_bola(base_url, path_template.replace("{id}", "1"), callback=callback)
-            if bola.get("vulnerable"):
-                results.append({
-                    "test_name": "BOLA: Unauthorized Object Access",
-                    "category": "BOLA",
-                    "passed": False,
-                    "severity": "HIGH",
-                    "detail": bola.get("detail"),
-                })
-            break
+    # 5. BOLA / IDOR testing on parameterized endpoints
+    param_templates = []
+    for ep in endpoints:
+        p = ep.get("path", "")
+        if any(param in p for param in ["{id}", "{user_id}", "{userId}", "{petId}", "{orderId}", "{accountId}", "{username}"]):
+            param_templates.append(p)
+        elif p.rstrip("/").split("/")[-1].isdigit():
+            # e.g. /api/users/1 -> replace last segment with {id}
+            parts = p.rstrip("/").split("/")
+            parts[-1] = "{id}"
+            param_templates.append("/".join(parts))
+
+    if not param_templates:
+        param_templates = ["/api/v1/users/{id}", "/users/{id}"]
+
+    for template in param_templates[:3]:
+        if callback:
+            callback(f"Testing BOLA / IDOR on {template}...")
+        bola = test_bola(base_url, template, callback=callback)
+        if bola.get("vulnerable"):
+            results.append({
+                "test_name": f"BOLA / IDOR: Unauthorized Object Access on {template}",
+                "category": "BOLA",
+                "passed": False,
+                "severity": "HIGH",
+                "detail": bola.get("detail", "Object accessible across authorization boundaries"),
+                "endpoint_path": template,
+            })
+        else:
+            results.append({
+                "test_name": f"BOLA Protection: Object Access on {template}",
+                "category": "BOLA",
+                "passed": True,
+                "severity": "INFO",
+                "detail": bola.get("detail", f"Object ID tampering correctly restricted (HTTP {bola.get('status_code')})"),
+                "endpoint_path": template,
+            })
 
     if callback:
-        callback(f"Auth testing complete: {len(results)} checks performed")
+        callback(f"Authentication testing complete: {len(results)} checks performed")
 
     return results
+

@@ -20,12 +20,13 @@
       <input type="number" class="form-input" id="vuln-session-id" placeholder="Reuse a discovery session">
     </div>
   </div>
-  <div style="display:flex;gap:10px;align-items:center">
+  <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
     <button class="btn btn-primary" id="start-vuln-btn" onclick="startVulnScan()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Run Vulnerability Scan
     </button>
-    <button class="btn btn-secondary" onclick="document.getElementById('vuln-target-url').value='http://localhost:5001'">Use Demo Target</button>
+    <button class="btn btn-secondary" onclick="prefillVulnDemo()">Use Demo Target</button>
+    <button class="btn btn-secondary" onclick="document.getElementById('vuln-target-url').value='https://petstore.swagger.io/v2'">Swagger Petstore</button>
     <div id="vuln-status-container" style="flex:1;display:none"></div>
   </div>
 </div>
@@ -131,6 +132,14 @@ let allFindings = [];
   if (params.get("url")) document.getElementById("vuln-target-url").value = params.get("url");
   if (params.get("session")) document.getElementById("vuln-session-id").value = params.get("session");
 })();
+
+function prefillVulnDemo() {
+  if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
+    document.getElementById("vuln-target-url").value = "http://localhost:5001";
+  } else {
+    document.getElementById("vuln-target-url").value = window.location.origin + "/vuln-api";
+  }
+}
 
 async function startVulnScan() {
   const url = document.getElementById("vuln-target-url").value.trim();
