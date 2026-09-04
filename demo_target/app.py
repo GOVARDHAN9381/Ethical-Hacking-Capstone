@@ -217,7 +217,7 @@ def data_dump():
 
 if __name__ == "__main__":
     print("\n" + "="*60)
-    print("  ⚠️  VULNERABLE DEMO API — FOR TESTING ONLY  ⚠️")
+    print("  [!] VULNERABLE DEMO API -- FOR TESTING ONLY  [!]")
     print("="*60)
     print("  Running on http://localhost:5001")
     print("  Point APIAST at: http://localhost:5001")
